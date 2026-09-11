@@ -7,7 +7,8 @@
 - 실행 가능한 Tool만 등록한다. 미구현 Tool을 등록하지 않는다
 - 모델 응답은 StudySpotResponse 검증 후 반환한다
 
-현재 상태: Memory(단기 State·장기 Store) 연동 완료. 분석용 Tool은 아직 미구현.
+현재 상태: Memory(단기 State·장기 Store) 연동 완료. 입력/출력 가드레일·PII·Tool
+재시도 middleware 연동 완료. 분석용 Tool, 승인(HITL) 플로우는 아직 미구현.
 """
 
 # 기본 유틸리티
@@ -44,8 +45,17 @@ from memory import (
     save_user_preferences,
 )
 
-# Middleware
-from middleware import guardrails, middleware
+# Middleware — 패키지 이름과 submodule 이름이 같아(middleware/middleware.py) 헷갈리지 않도록
+# 필요한 이름만 submodule 경로로 직접 import한다.
+from middleware.guardrails import (
+    build_pii_middlewares,
+    input_guardrail,
+    output_secret_guardrail,
+)
+from middleware.middleware import tool_retry_middleware
+
+# middleware.middleware.build_human_in_the_loop_middleware, sensitive_action_execution_guard는
+# send_analysis_report/create_site_visit_event Tool이 구현된 뒤 tools·middleware에 함께 추가한다.
 
 # Schemas
 from models.schemas import AgentRequest, RuntimeContext, StudySpotResponse, StudySpotState
@@ -71,15 +81,26 @@ def build_agent(
       ToolRuntime[RuntimeContext]로 user_id 등을 안전하게 받을 수 있게 한다.
     - response_format=StudySpotResponse: 모델의 최종 응답을 자동으로 검증한다
       (result["structured_response"]).
+
+    middleware 순서는 guardrails.py의 실행 흐름 설명을 그대로 따른다:
+    사용자 입력 → input_guardrail(위험 요청 차단) → PII 처리 → Agent/Model → 응답
+    생성 후 output_secret_guardrail(내부정보 노출 차단). tool_retry_middleware는
+    개별 Tool 호출(wrap_tool_call) 경계라 나머지와 실행 시점이 겹치지 않는다.
     """
     return create_agent(
         model=model_name,
         tools=[
-            save_user_preferences,  # 구현 완료 (memory/store.py)
-            save_shortlist,  # 구현 완료 (memory/store.py)
-            # TODO: 분석용 Tool(academy_tools 등)이 완성되면 실행 가능한 것만 추가
+            save_user_preferences,
+            save_shortlist,
         ],
-        middleware=[],  # TODO: guardrails 등 완성되는 대로 등록
+        middleware=[
+            input_guardrail,  # before_agent: prompt injection·secret 요청·상세주소 차단
+            *build_pii_middlewares(),  # 입출력 email/phone 마스킹
+            output_secret_guardrail,  # after_model: 응답에 노출된 secret 치환
+            tool_retry_middleware,  # wrap_tool_call: 일시 장애 재시도 (cache/mock 미연결)
+            # TODO: build_human_in_the_loop_middleware(), sensitive_action_execution_guard는
+            # send_analysis_report/create_site_visit_event Tool 구현 후 추가
+        ],
         system_prompt=SYSTEM_PROMPT,
         state_schema=StudySpotState,
         context_schema=RuntimeContext,
@@ -132,10 +153,12 @@ def run_analysis(request: AgentRequest, context: RuntimeContext) -> StudySpotRes
     반환값은 create_agent(response_format=StudySpotResponse)가 검증한 structured_response다.
 
     주의: AgentRequest는 message 없이 approval_decision만 올 수도 있다 (승인/거절 처리).
-    승인 플로우는 middleware/guardrails 쪽 구현이 끝나야 붙일 수 있어 현재는 미구현이다.
+    승인 플로우는 build_human_in_the_loop_middleware()가 미들웨어에 등록되고
+    (현재는 대상 action Tool이 미구현이라 등록하지 않았다) LangGraph의 interrupt
+    재개(Command(resume=...))로 연결되어야 동작한다. 그전까지는 미구현이다.
     """
     if request.approval_decision is not None:
-        # TODO: 승인/거절 처리 (middleware.guardrails 연동 후 구현)
+        # TODO: send_analysis_report/create_site_visit_event Tool + HITL 미들웨어 연동 후 구현
         raise NotImplementedError("approval_decision 처리는 아직 구현되지 않았다.")
 
     user_message = (request.message or "").strip()

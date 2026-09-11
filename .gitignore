@@ -11,3 +11,6 @@ venv/
 
 # OS
 .DS_Store
+
+# 개인
+agent/main_agent_example.py
