@@ -1,0 +1,2328 @@
+{
+  "area": {
+    "commercial_area_id": "AREA-A",
+    "administrative_code": "1168010100",
+    "area_name": "예제 상권 A",
+    "latitude": 37.501,
+    "longitude": 127.037
+  },
+  "conditions": {
+    "preferred_region": "역삼",
+    "deposit_budget": 30000000,
+    "monthly_rent_budget": 3000000,
+    "target_age": "고등학생",
+    "operating_start_time": "09:00",
+    "operating_end_time": "23:00",
+    "priority_metrics": []
+  },
+  "period": {
+    "start_date": "2026-09-10",
+    "end_date": "2026-09-10",
+    "timezone": "Asia/Seoul",
+    "day_types": [
+      "weekday"
+    ],
+    "start_time": null,
+    "end_time": null
+  },
+  "tool_results": {
+    "get_academy_demand": {
+      "success": true,
+      "source": "SK Open API - 학령·분류별 지역 학원 순위",
+      "data": {
+        "commercial_area_id": "AREA-A",
+        "administrative_code": "1168010100",
+        "observations": [
+          {
+            "metric_name": "estimated_academy_call_customers",
+            "value": 400.0,
+            "unit": "persons",
+            "period": {
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 학령·분류별 지역 학원 순위",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "estimated_academy_call_customers",
+            "value": 300.0,
+            "unit": "persons",
+            "period": {
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 학령·분류별 지역 학원 순위",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "estimated_academy_call_customers",
+            "value": 200.0,
+            "unit": "persons",
+            "period": {
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 학령·분류별 지역 학원 순위",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "estimated_academy_call_customers",
+            "value": 200.0,
+            "unit": "persons",
+            "period": {
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 학령·분류별 지역 학원 순위",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "estimated_academy_call_customers",
+            "value": 100.0,
+            "unit": "persons",
+            "period": {
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 학령·분류별 지역 학원 순위",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          }
+        ],
+        "missing_data": []
+      },
+      "error_code": null,
+      "error_message": null,
+      "is_mock": false
+    },
+    "get_visitor_demographics": {
+      "success": true,
+      "source": "SK Open API - 상권 방문자 연령 분포",
+      "data": {
+        "area": {
+          "commercial_area_id": "AREA-A",
+          "administrative_code": "1168010100",
+          "area_name": "예제 상권 A",
+          "latitude": 37.501,
+          "longitude": 127.037
+        },
+        "target_age_group": "10",
+        "observations": [
+          {
+            "metric_name": "visitor_age_group_rate",
+            "value": 14.0,
+            "unit": "percent",
+            "period": {
+              "start_date": "2026-08-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 상권 방문자 연령 분포",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "visitor_age_group_rate",
+            "value": 16.0,
+            "unit": "percent",
+            "period": {
+              "start_date": "2026-08-01",
+              "end_date": "2026-08-31",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "SK Open API - 상권 방문자 연령 분포",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {}
+          }
+        ],
+        "missing_data": []
+      },
+      "error_code": null,
+      "error_message": null,
+      "is_mock": false
+    },
+    "get_station_exit_traffic": {
+      "success": true,
+      "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+      "data": {
+        "station_id": "222",
+        "observations": [
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "00:00",
+              "end_time": "01:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "00:00-01:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "00:00",
+              "end_time": "01:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "00:00-01:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "05:00",
+              "end_time": "06:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "05:00-06:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "05:00",
+              "end_time": "06:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "05:00-06:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "06:00",
+              "end_time": "07:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "06:00-07:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "06:00",
+              "end_time": "07:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "06:00-07:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "07:00",
+              "end_time": "08:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "07:00-08:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "07:00",
+              "end_time": "08:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "07:00-08:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "08:00",
+              "end_time": "09:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "08:00-09:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "08:00",
+              "end_time": "09:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "08:00-09:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "09:00",
+              "end_time": "10:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "09:00-10:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "09:00",
+              "end_time": "10:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "09:00-10:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "10:00",
+              "end_time": "11:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "10:00-11:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "10:00",
+              "end_time": "11:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "10:00-11:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "11:00",
+              "end_time": "12:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "11:00-12:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "11:00",
+              "end_time": "12:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "11:00-12:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "12:00",
+              "end_time": "13:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "12:00-13:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "12:00",
+              "end_time": "13:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "12:00-13:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "13:00",
+              "end_time": "14:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "13:00-14:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "13:00",
+              "end_time": "14:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "13:00-14:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "14:00",
+              "end_time": "15:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "14:00-15:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "14:00",
+              "end_time": "15:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "14:00-15:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "15:00",
+              "end_time": "16:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "15:00-16:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "15:00",
+              "end_time": "16:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "15:00-16:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "16:00",
+              "end_time": "17:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "16:00-17:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "16:00",
+              "end_time": "17:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "16:00-17:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "17:00",
+              "end_time": "18:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "17:00-18:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "17:00",
+              "end_time": "18:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "17:00-18:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "18:00",
+              "end_time": "19:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "18:00-19:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "18:00",
+              "end_time": "19:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "18:00-19:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "19:00",
+              "end_time": "20:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "19:00-20:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "19:00",
+              "end_time": "20:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "19:00-20:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "20:00",
+              "end_time": "21:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "20:00-21:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "20:00",
+              "end_time": "21:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "20:00-21:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "21:00",
+              "end_time": "22:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "21:00-22:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "21:00",
+              "end_time": "22:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "21:00-22:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "22:00",
+              "end_time": "23:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "22:00-23:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "22:00",
+              "end_time": "23:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "22:00-23:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 250.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "23:00",
+              "end_time": "00:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "1",
+              "day_type": "weekday",
+              "time_slot": "23:00-00:00"
+            }
+          },
+          {
+            "metric_name": "station_exit_user_count",
+            "value": 150.0,
+            "unit": "persons/hour",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "23:00",
+              "end_time": "00:00"
+            },
+            "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "exit_number": "2",
+              "day_type": "weekday",
+              "time_slot": "23:00-00:00"
+            }
+          }
+        ],
+        "missing_data": []
+      },
+      "error_code": null,
+      "error_message": null,
+      "is_mock": false
+    },
+    "get_district_congestion": {
+      "success": true,
+      "source": "SK Open API - 시간대별 상권 혼잡도",
+      "data": {
+        "area": {
+          "commercial_area_id": "AREA-A",
+          "administrative_code": "1168010100",
+          "area_name": "예제 상권 A",
+          "latitude": 37.501,
+          "longitude": 127.037
+        },
+        "observations": [
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "00:00",
+              "end_time": "01:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "00:00-01:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "00:00",
+              "end_time": "01:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "00:00-01:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "01:00",
+              "end_time": "02:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "01:00-02:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "01:00",
+              "end_time": "02:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "01:00-02:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "02:00",
+              "end_time": "03:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "02:00-03:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "02:00",
+              "end_time": "03:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "02:00-03:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "03:00",
+              "end_time": "04:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "03:00-04:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "03:00",
+              "end_time": "04:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "03:00-04:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "04:00",
+              "end_time": "05:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "04:00-05:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "04:00",
+              "end_time": "05:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "04:00-05:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "05:00",
+              "end_time": "06:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "05:00-06:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "05:00",
+              "end_time": "06:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "05:00-06:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "06:00",
+              "end_time": "07:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "06:00-07:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "06:00",
+              "end_time": "07:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "06:00-07:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "07:00",
+              "end_time": "08:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "07:00-08:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "07:00",
+              "end_time": "08:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "07:00-08:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "08:00",
+              "end_time": "09:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "08:00-09:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "08:00",
+              "end_time": "09:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "08:00-09:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "09:00",
+              "end_time": "10:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "09:00-10:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "09:00",
+              "end_time": "10:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "09:00-10:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "10:00",
+              "end_time": "11:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "10:00-11:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "10:00",
+              "end_time": "11:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "10:00-11:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "11:00",
+              "end_time": "12:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "11:00-12:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "11:00",
+              "end_time": "12:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "11:00-12:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "12:00",
+              "end_time": "13:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "12:00-13:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "12:00",
+              "end_time": "13:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "12:00-13:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "13:00",
+              "end_time": "14:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "13:00-14:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "13:00",
+              "end_time": "14:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "13:00-14:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "14:00",
+              "end_time": "15:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "14:00-15:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "14:00",
+              "end_time": "15:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "14:00-15:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "15:00",
+              "end_time": "16:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "15:00-16:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "15:00",
+              "end_time": "16:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "15:00-16:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "16:00",
+              "end_time": "17:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "16:00-17:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "16:00",
+              "end_time": "17:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "16:00-17:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "17:00",
+              "end_time": "18:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "17:00-18:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "17:00",
+              "end_time": "18:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "17:00-18:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "18:00",
+              "end_time": "19:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "18:00-19:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "18:00",
+              "end_time": "19:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "18:00-19:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "19:00",
+              "end_time": "20:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "19:00-20:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "19:00",
+              "end_time": "20:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "19:00-20:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "20:00",
+              "end_time": "21:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "20:00-21:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "20:00",
+              "end_time": "21:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "20:00-21:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "21:00",
+              "end_time": "22:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "21:00-22:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "21:00",
+              "end_time": "22:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "21:00-22:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.2,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "22:00",
+              "end_time": "23:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "22:00-23:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 6.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "22:00",
+              "end_time": "23:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "22:00-23:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_density",
+            "value": 0.07,
+            "unit": "persons/m2",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "23:00",
+              "end_time": "00:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "23:00-00:00"
+            }
+          },
+          {
+            "metric_name": "district_congestion_level",
+            "value": 3.0,
+            "unit": "level_1_to_10",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": "23:00",
+              "end_time": "00:00"
+            },
+            "source": "SK Open API - 시간대별 상권 혼잡도",
+            "is_mock": false,
+            "missing_reason": null,
+            "dimensions": {
+              "day_type": "weekday",
+              "time_slot": "23:00-00:00"
+            }
+          }
+        ],
+        "missing_data": []
+      },
+      "error_code": null,
+      "error_message": null,
+      "is_mock": false
+    },
+    "get_rent_and_closure_data": {
+      "success": true,
+      "source": "mock:rent_and_closure",
+      "data": {
+        "area": {
+          "commercial_area_id": "AREA-A",
+          "administrative_code": "1168010100",
+          "area_name": "예제 상권 A",
+          "latitude": 37.501,
+          "longitude": 127.037
+        },
+        "observations": [
+          {
+            "metric_name": "deposit_krw",
+            "value": 20000000.0,
+            "unit": "KRW",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "mock:rent_and_closure",
+            "is_mock": true,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "monthly_rent_krw",
+            "value": 3000000.0,
+            "unit": "KRW/month",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "mock:rent_and_closure",
+            "is_mock": true,
+            "missing_reason": null,
+            "dimensions": {}
+          },
+          {
+            "metric_name": "closure_rate_percent",
+            "value": 7.4,
+            "unit": "percent",
+            "period": {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-10",
+              "timezone": "Asia/Seoul",
+              "day_types": [
+                "weekday"
+              ],
+              "start_time": null,
+              "end_time": null
+            },
+            "source": "mock:rent_and_closure",
+            "is_mock": true,
+            "missing_reason": null,
+            "dimensions": {}
+          }
+        ],
+        "missing_data": []
+      },
+      "error_code": null,
+      "error_message": null,
+      "is_mock": true
+    },
+    "search_competitors": {
+      "success": true,
+      "source": "TMAP - 장소 통합 검색",
+      "data": {
+        "area": {
+          "commercial_area_id": "AREA-A",
+          "administrative_code": "1168010100",
+          "area_name": "예제 상권 A",
+          "latitude": 37.501,
+          "longitude": 127.037
+        },
+        "radius_m": 500,
+        "retrieved_at": "2026-09-10T10:00:00+09:00",
+        "competitors": [
+          {
+            "poi_id": "TEST-1",
+            "name": "예제 스터디카페 1",
+            "latitude": 37.501999999999995,
+            "longitude": 127.037,
+            "distance_m": 120.5,
+            "category": "스터디카페",
+            "address": "서울 강남구 (예제)"
+          },
+          {
+            "poi_id": "TEST-2",
+            "name": "예제 스터디카페 2",
+            "latitude": 37.503,
+            "longitude": 127.037,
+            "distance_m": 260.0,
+            "category": "스터디카페",
+            "address": "서울 강남구 (예제)"
+          },
+          {
+            "poi_id": "TEST-3",
+            "name": "예제 스터디카페 3",
+            "latitude": 37.504,
+            "longitude": 127.037,
+            "distance_m": 410.3,
+            "category": "스터디카페",
+            "address": "서울 강남구 (예제)"
+          }
+        ]
+      },
+      "error_code": null,
+      "error_message": null,
+      "is_mock": false
+    }
+  }
+}
