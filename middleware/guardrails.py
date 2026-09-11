@@ -13,6 +13,10 @@ Agent 실행 전에 종료한다. ``build_pii_middlewares``는 email/phone을
 framework와 독립적으로 검사한다. ``output_secret_guardrail``은
 ``after_model`` hook에서 위반 응답을 고정 안전 문구로 교체한다.
 
+``inspect_tool_result_for_no_data``는 retry/fallback 없이 개별 ToolResult가
+분석 근거로 사용 가능한지 판정한다. data absence와 실행 오류를 구분하며,
+일부 ``missing_data`` 또는 정상 0건 성공 결과를 실패로 바꾸지 않는다.
+
 Prompt Injection은 기존 지시 체계를 변경하려는 요청이고, Secret
 Disclosure는 System Prompt/API Key 같은 내부정보 공개 요청이다. Detailed
 Address는 MVP 입력 정책에 따라 coarse location으로 정제할 수 있을 때만
@@ -23,17 +27,39 @@ Agent/Tool에 전달하고, 그렇지 않으면 실행 전에 차단한다. 정�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+import json
 import re
 from typing import Any, Iterable
 
-from langchain.agents.middleware import PIIMiddleware, after_model, before_agent
-from langchain.messages import AIMessage
+from langchain.agents.middleware import AgentMiddleware, PIIMiddleware, after_model, before_agent, wrap_tool_call
+from langchain.messages import AIMessage, ToolMessage
+from models.schemas import AreaIdentity, ErrorCode, MarketScore, StudySpotResponse, ToolResult
 
 PROMPT_INJECTION = "PROMPT_INJECTION"
 SECRET_DISCLOSURE = "SECRET_DISCLOSURE"
 DETAILED_ADDRESS = "DETAILED_ADDRESS"
+UNTRUSTED_TOOL_OUTPUT = "UNTRUSTED_TOOL_OUTPUT"
+UNSUPPORTED_DATA = "UNSUPPORTED_DATA"
 SAFE_OUTPUT_MESSAGE = "응답에 보호해야 할 내부 정보가 포함되어 있어 해당 내용을 제공할 수 없습니다."
+SAFE_TOOL_TEXT_PLACEHOLDER = "[UNTRUSTED_TOOL_TEXT_REMOVED]"
+_NO_DATA_EVIDENCE_CODES = frozenset({
+    ErrorCode.NO_DATA,
+    ErrorCode.AREA_NOT_FOUND,
+    ErrorCode.STATION_NOT_FOUND,
+})
+_VERIFIED_SCORE_FIELDS = (
+    "academy_demand_score",
+    "target_customer_score",
+    "station_traffic_score",
+    "activity_score",
+    "rent_score",
+    "competition_score",
+    "total_score",
+    "confidence",
+    "missing_data",
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +80,12 @@ _SECRET_PATTERNS = (
     re.compile(r"(?:api[ _-]?key|access[ _-]?token|secret|비밀번호|인증\s*정보).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
     re.compile(r"(?:environment\s*variables?|환경\s*변수|내부\s*설정).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
     re.compile(r"(?:system\s*prompt|시스템\s*프롬프트|developer\s*prompt|내부\s*지시).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
+)
+_TOOL_OUTPUT_INSTRUCTION_PATTERNS = (
+    re.compile(r"(?:이전|기존|앞선|내부).{0,12}(?:시스템\s*)?(?:지시|명령|규칙).{0,20}(?:무시|ignore|따르지)", re.I),
+    re.compile(r"(?:ignore|disregard|do not follow).{0,20}(?:system|developer|previous|internal).{0,20}(?:instructions?|rules?|prompt)", re.I),
+    re.compile(r"developer\s+instructions?.{0,20}(?:따르지|ignore|disregard|do not follow)", re.I),
+    re.compile(r"(?:이\s*tool|this\s*tool|tool).{0,20}(?:지시|instructions?).{0,20}(?:최우선|우선|follow|따라)", re.I),
 )
 _DETAILED_ADDRESS_PATTERNS = (
     re.compile(r"(?:[가-힣A-Za-z]+(?:로|길))\s*\d{1,5}(?:\s*-\s*\d{1,4})?"),
@@ -129,6 +161,170 @@ def inspect_model_output(value: str) -> GuardrailDecision:
     return GuardrailDecision(True, sanitized_value=value)
 
 
+def _contains_untrusted_tool_instruction(value: str) -> bool:
+    return any(pattern.search(value) for pattern in (*_TOOL_OUTPUT_INSTRUCTION_PATTERNS, *_SECRET_PATTERNS))
+
+
+def _iter_tool_text(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_tool_text(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_tool_text(item)
+
+
+def _tool_output_content(tool_output: ToolResult | ToolMessage) -> Any:
+    if isinstance(tool_output, ToolResult):
+        return {"data": tool_output.data, "error_message": tool_output.error_message}
+    if isinstance(tool_output.content, str):
+        try:
+            return json.loads(tool_output.content)
+        except json.JSONDecodeError:
+            return tool_output.content
+    return tool_output.content
+
+
+def inspect_untrusted_tool_output(tool_output: ToolResult | ToolMessage) -> GuardrailDecision:
+    """외부 Tool의 text가 Agent 지시로 승격될 수 있는지 독립적으로 판정한다."""
+    if any(_contains_untrusted_tool_instruction(text) for text in _iter_tool_text(_tool_output_content(tool_output))):
+        return GuardrailDecision(False, UNTRUSTED_TOOL_OUTPUT)
+    return GuardrailDecision(True)
+
+
+def _sanitize_untrusted_tool_value(value: Any) -> tuple[Any, bool]:
+    if isinstance(value, str):
+        return (SAFE_TOOL_TEXT_PLACEHOLDER, True) if _contains_untrusted_tool_instruction(value) else (value, False)
+    if isinstance(value, dict):
+        sanitized: dict[Any, Any] = {}
+        changed = False
+        for key, item in value.items():
+            sanitized_item, item_changed = _sanitize_untrusted_tool_value(item)
+            sanitized[key] = sanitized_item
+            changed = changed or item_changed
+        return sanitized, changed
+    if isinstance(value, list):
+        sanitized_items = []
+        changed = False
+        for item in value:
+            sanitized_item, item_changed = _sanitize_untrusted_tool_value(item)
+            sanitized_items.append(sanitized_item)
+            changed = changed or item_changed
+        return sanitized_items, changed
+    return value, False
+
+
+def sanitize_untrusted_tool_output(tool_output: ToolResult | ToolMessage) -> ToolResult | ToolMessage:
+    """위험한 Tool text field만 치환하고 Tool 결과의 구조적 계약은 유지한다."""
+    if isinstance(tool_output, ToolResult):
+        data, data_changed = _sanitize_untrusted_tool_value(tool_output.data)
+        error_message, error_changed = _sanitize_untrusted_tool_value(tool_output.error_message)
+        if not data_changed and not error_changed:
+            return tool_output
+        return tool_output.model_copy(update={"data": data, "error_message": error_message})
+
+    content = tool_output.content
+    if not isinstance(content, str):
+        return tool_output
+    try:
+        decoded = json.loads(content)
+    except json.JSONDecodeError:
+        sanitized_content, changed = _sanitize_untrusted_tool_value(content)
+    else:
+        sanitized_value, changed = _sanitize_untrusted_tool_value(decoded)
+        sanitized_content = json.dumps(sanitized_value, ensure_ascii=False) if changed else content
+    return tool_output.model_copy(update={"content": sanitized_content}) if changed else tool_output
+
+
+def create_tool_output_guardrail() -> Any:
+    """최종 ToolMessage를 Model 경계 전에 정제하는 ``wrap_tool_call`` adapter를 만든다."""
+
+    @wrap_tool_call
+    def guard_tool_output(request: Any, handler: Any) -> Any:
+        result = handler(request)
+        # Command는 그래프 제어 신호이므로 Tool text 정책으로 변경하지 않는다.
+        return sanitize_untrusted_tool_output(result) if isinstance(result, (ToolResult, ToolMessage)) else result
+
+    return guard_tool_output
+
+
+# Agent는 condition gate 다음, retry middleware 앞에 이 객체를 등록한다.
+tool_output_guardrail = create_tool_output_guardrail()
+
+
+def inspect_tool_result_for_no_data(tool_result: ToolResult) -> GuardrailDecision:
+    """ToolResult가 정상 분석 evidence로 사용 가능한지 data absence와 실행 오류를 구분해 판정한다."""
+    if tool_result.success:
+        return GuardrailDecision(True)
+    if tool_result.error_code in _NO_DATA_EVIDENCE_CODES:
+        return GuardrailDecision(False, tool_result.error_code.value)
+    return GuardrailDecision(False, tool_result.error_code.value if tool_result.error_code else None)
+
+
+def _contains_numeric_evidence(data: Any, *, metric_name: str, value: float, unit: str) -> bool:
+    """중첩된 Tool payload에서 EvidenceItem의 수치 계약을 찾는다."""
+    if isinstance(data, Mapping):
+        if (
+            data.get("metric_name") == metric_name
+            and data.get("value") == value
+            and data.get("unit") == unit
+        ):
+            return True
+        return any(
+            _contains_numeric_evidence(item, metric_name=metric_name, value=value, unit=unit)
+            for item in data.values()
+        )
+    if isinstance(data, list):
+        return any(
+            _contains_numeric_evidence(item, metric_name=metric_name, value=value, unit=unit)
+            for item in data
+        )
+    return False
+
+
+def inspect_response_evidence(
+    response: StudySpotResponse,
+    *,
+    market_scores: Mapping[str, MarketScore],
+    tool_results: Mapping[str, ToolResult],
+    areas: Mapping[str, AreaIdentity],
+) -> GuardrailDecision:
+    """최종 추천의 정량 근거가 검증된 상권·점수·Tool 결과와 일치하는지 판정한다.
+
+    이 core는 응답을 변경하거나 실패 상태로 변환하지 않는다. 식별자, 점수,
+    source/is_mock, 수치 evidence만 대조하고 strengths·risks·summary 같은 자연어
+    설명은 Agent의 표현 영역으로 남긴다.
+    """
+    for recommendation in response.recommendations:
+        area_id = recommendation.commercial_area_id
+        score = market_scores.get(area_id)
+        area = areas.get(area_id)
+        if score is None or area is None or area.area_name != recommendation.area_name:
+            return GuardrailDecision(False, UNSUPPORTED_DATA)
+        if any(getattr(recommendation, field) != getattr(score, field) for field in _VERIFIED_SCORE_FIELDS):
+            return GuardrailDecision(False, UNSUPPORTED_DATA)
+
+        for evidence in recommendation.evidence:
+            # Numeric evidence requires tool_name by the public schema; therefore its provenance is checkable.
+            if evidence.tool_name is None:
+                continue
+            tool_result = tool_results.get(evidence.tool_name)
+            if tool_result is None:
+                return GuardrailDecision(False, UNSUPPORTED_DATA)
+            if evidence.source != tool_result.source or evidence.is_mock != tool_result.is_mock:
+                return GuardrailDecision(False, UNSUPPORTED_DATA)
+            if evidence.value is not None and not _contains_numeric_evidence(
+                tool_result.data,
+                metric_name=evidence.metric_name or "",
+                value=evidence.value,
+                unit=evidence.unit or "",
+            ):
+                return GuardrailDecision(False, UNSUPPORTED_DATA)
+    return GuardrailDecision(True)
+
+
 def _last_message_text(messages: Iterable[Any]) -> str:
     for message in reversed(list(messages)):
         content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
@@ -200,18 +396,49 @@ PHONE_NUMBER_PATTERN = r"(?<!\d)(?:\+?82[-\s]?)?0?1[0-9][\s-]?\d{3,4}[\s-]?\d{4}
 
 
 # 안전 판정 뒤 모델 입출력과 저장 경계에서 PII를 분리해 보호한다.
-def build_pii_middlewares() -> list[PIIMiddleware]:
-    """LangChain 내장 email detector와 한국 전화번호 custom detector를 사용한다."""
+def _build_pii_rules() -> list[PIIMiddleware]:
     return [
         PIIMiddleware("email", strategy="redact", apply_to_input=True, apply_to_output=True),
         PIIMiddleware("phone_number", detector=PHONE_NUMBER_PATTERN, strategy="redact", apply_to_input=True, apply_to_output=True),
     ]
 
 
+class _SequentialPIIMiddleware(AgentMiddleware):
+    """여러 PII 규칙의 message 교체를 하나의 lifecycle update로 합친다.
+
+    LangGraph의 ``messages`` reducer는 같은 message id의 마지막 update만 반영한다.
+    email/phone 규칙을 순차 적용해 두 종류의 PII가 모두 다음 Model 단계에서 제거되게 한다.
+    """
+
+    def __init__(self, middlewares: list[PIIMiddleware]) -> None:
+        self.middlewares = middlewares
+
+    def before_model(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+        return self._apply("before_model", state, runtime)
+
+    def after_model(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+        return self._apply("after_model", state, runtime)
+
+    def _apply(self, hook_name: str, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+        current_state = state
+        changed = False
+        for middleware in self.middlewares:
+            update = getattr(middleware, hook_name)(current_state, runtime)
+            if update is not None:
+                current_state = {**current_state, **update}
+                changed = True
+        return {"messages": current_state["messages"]} if changed else None
+
+
+def build_pii_middlewares() -> list[AgentMiddleware]:
+    """LangChain 내장 email detector와 한국 전화번호 detector를 순차 적용한다."""
+    return [_SequentialPIIMiddleware(_build_pii_rules())]
+
+
 def mask_pii_for_storage(value: str) -> str:
     """저장/로그 경계용 마스킹 helper. 원문을 출력하지 않는다."""
     masked = value
-    for middleware in build_pii_middlewares():
+    for middleware in _build_pii_rules():
         # TODO: LangChain private API 의존. Store 통합 시 public integration 경로 또는 안정된 sanitizer로 교체 검토.
         masked_value, _ = middleware._process_content(masked)
         if not isinstance(masked_value, str):
