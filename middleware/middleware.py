@@ -9,6 +9,10 @@
 ``create_tool_retry_middleware`` 및 ``tool_retry_middleware``는 이를
 LangChain ``wrap_tool_call``에 연결한다. ``build_human_in_the_loop_middleware``는
 외부 부작용 Tool이 사용자 승인 전에 실행되지 않도록 구성한다.
+
+HumanInTheLoopMiddleware가 사용자 승인/거절 흐름을 담당한다면, sensitive
+action execution guard는 모델 validation과 HITL 이후에도 실제 외부 행동
+직전에 승인 상태와 실행 주체를 재확인하는 최종 방어선이다.
 """
 
 from __future__ import annotations
@@ -18,11 +22,20 @@ import json
 from typing import Any, TypeVar
 
 from langchain.agents.middleware import HumanInTheLoopMiddleware, wrap_tool_call
+from models.schemas import PendingAction, RuntimeContext
 
 T = TypeVar("T")
 MAX_TOOL_ATTEMPTS = 3
 RETRYABLE_ERROR_CODES = frozenset({"API_TIMEOUT", "API_RATE_LIMIT", "API_RESPONSE_ERROR"})
 NON_RETRYABLE_ERROR_CODES = frozenset({"API_AUTH_ERROR", "API_BAD_REQUEST", "INVALID_INPUT", "UNSUPPORTED_AREA", "AREA_NOT_FOUND", "NO_DATA"})
+SENSITIVE_ACTION_TOOL_TYPES = {
+    "send_analysis_report": "send_report",
+    "create_site_visit_event": "create_site_visit",
+}
+
+
+class SensitiveActionExecutionDenied(PermissionError):
+    """외부 행동의 실행 전 승인 검증이 실패했을 때 발생한다."""
 
 
 def _get_success(result: Any) -> bool | None:
@@ -115,6 +128,50 @@ def build_human_in_the_loop_middleware() -> HumanInTheLoopMiddleware:
         "send_analysis_report": {"allowed_decisions": ["approve", "reject"]},
         "create_site_visit_event": {"allowed_decisions": ["approve", "reject"]},
     })
+
+
+def ensure_sensitive_action_approved(
+    tool_name: str,
+    pending_action: PendingAction | None,
+    runtime_context: RuntimeContext,
+) -> None:
+    """실제 action Tool 호출 직전에 저장된 승인 상태와 실행 주체를 검증한다."""
+    expected_action_type = SENSITIVE_ACTION_TOOL_TYPES.get(tool_name)
+    if expected_action_type is None:
+        raise ValueError(f"지원하지 않는 sensitive action tool: {tool_name}")
+    if pending_action is None:
+        raise SensitiveActionExecutionDenied("승인 대기 작업이 없어 외부 행동을 실행할 수 없습니다")
+    if pending_action.status != "approved":
+        raise SensitiveActionExecutionDenied("승인된 작업만 외부 행동을 실행할 수 있습니다")
+    if pending_action.action_type != expected_action_type:
+        raise SensitiveActionExecutionDenied("승인된 작업과 실행 Tool이 일치하지 않습니다")
+    if pending_action.user_id != runtime_context.user_id:
+        raise SensitiveActionExecutionDenied("승인한 사용자와 실행 사용자가 일치하지 않습니다")
+    if pending_action.session_id != runtime_context.session_id:
+        raise SensitiveActionExecutionDenied("승인한 세션과 실행 세션이 일치하지 않습니다")
+
+
+def _pending_action_from_state(state: Any) -> PendingAction | None:
+    pending_action = state.get("pending_action") if isinstance(state, Mapping) else getattr(state, "pending_action", None)
+    return pending_action if isinstance(pending_action, PendingAction) else None
+
+
+@wrap_tool_call
+def sensitive_action_execution_guard(request: Any, handler: Callable[[Any], Any]) -> Any:
+    """LangChain Tool 실행 경계에서 sensitive action만 defense-in-depth 검증한다."""
+    tool_name = request.tool_call["name"]
+    if tool_name not in SENSITIVE_ACTION_TOOL_TYPES:
+        return handler(request)
+    runtime_context = getattr(request.runtime, "context", None)
+    if not isinstance(runtime_context, RuntimeContext):
+        raise SensitiveActionExecutionDenied("신뢰 가능한 실행 주체 정보가 필요합니다")
+    ensure_sensitive_action_approved(
+        tool_name,
+        _pending_action_from_state(request.state),
+        runtime_context,
+    )
+    # TODO: action Tool interface가 action_id/payload_version을 전달하면 승인 대상과도 비교한다.
+    return handler(request)
 
 
 # TODO: Agent graph/recursion 정책이 확정된 뒤 MaxIterationMiddleware를 연결한다.

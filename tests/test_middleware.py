@@ -2,9 +2,16 @@ from dataclasses import dataclass
 
 import pytest
 from langchain.messages import ToolMessage
+from langchain.agents.middleware.types import ToolCallRequest
+from langchain.tools import ToolRuntime
 
-from middleware.middleware import execute_with_retry
-from models.schemas import ErrorCode, ToolResult
+from middleware.middleware import (
+    SensitiveActionExecutionDenied,
+    ensure_sensitive_action_approved,
+    execute_with_retry,
+    sensitive_action_execution_guard,
+)
+from models.schemas import ErrorCode, PendingAction, RuntimeContext, ToolResult
 
 
 @dataclass
@@ -26,6 +33,25 @@ def tool_failure(error_code: ErrorCode) -> ToolResult:
         error_code=error_code,
         is_mock=False,
     )
+
+
+def pending_action(**overrides) -> PendingAction:
+    values = {
+        "action_id": "action-1",
+        "action_type": "send_report",
+        "payload_version": 1,
+        "display_summary": "분석 보고서 전송",
+        "user_id": "user-1",
+        "session_id": "session-1",
+    }
+    values.update(overrides)
+    return PendingAction(**values)
+
+
+def runtime_context(**overrides) -> RuntimeContext:
+    values = {"user_id": "user-1", "session_id": "session-1", "user_role": "user"}
+    values.update(overrides)
+    return RuntimeContext(**values)
 
 
 def test_mw_01_timeout_retries_exactly_three_times():
@@ -222,3 +248,75 @@ def test_hitl_action_tools_allow_only_approve_or_reject():
         allowed_decisions = middleware.interrupt_on[tool_name]["allowed_decisions"]
         assert allowed_decisions == ["approve", "reject"]
         assert "edit" not in allowed_decisions
+
+
+def test_sensitive_action_execution_allows_matching_approved_action():
+    action = pending_action().transition_to("approved")
+    assert ensure_sensitive_action_approved("send_analysis_report", action, runtime_context()) is None
+
+
+@pytest.mark.parametrize("status", ["pending", "rejected"])
+def test_sensitive_action_execution_blocks_non_approved_action(status):
+    action = pending_action()
+    if status == "rejected":
+        action = action.transition_to("rejected")
+
+    with pytest.raises(SensitiveActionExecutionDenied):
+        ensure_sensitive_action_approved("send_analysis_report", action, runtime_context())
+
+
+def test_sensitive_action_execution_blocks_action_type_mismatch():
+    action = pending_action().transition_to("approved")
+
+    with pytest.raises(SensitiveActionExecutionDenied):
+        ensure_sensitive_action_approved("create_site_visit_event", action, runtime_context())
+
+
+def test_sensitive_action_execution_blocks_user_mismatch():
+    action = pending_action().transition_to("approved")
+
+    with pytest.raises(SensitiveActionExecutionDenied):
+        ensure_sensitive_action_approved("send_analysis_report", action, runtime_context(user_id="other-user"))
+
+
+def test_sensitive_action_execution_blocks_session_mismatch():
+    action = pending_action().transition_to("approved")
+
+    with pytest.raises(SensitiveActionExecutionDenied):
+        ensure_sensitive_action_approved("send_analysis_report", action, runtime_context(session_id="other-session"))
+
+
+def test_sensitive_action_execution_blocks_missing_pending_action():
+    with pytest.raises(SensitiveActionExecutionDenied):
+        ensure_sensitive_action_approved("send_analysis_report", None, runtime_context())
+
+
+def test_sensitive_action_adapter_checks_state_and_context_before_handler():
+    calls = 0
+    state = {"pending_action": pending_action().transition_to("approved")}
+    request = ToolCallRequest(
+        tool_call={"name": "send_analysis_report", "args": {}, "id": "call-1", "type": "tool_call"},
+        tool=None,
+        state=state,
+        runtime=ToolRuntime(
+            state=state,
+            context=runtime_context(),
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id="call-1",
+            store=None,
+        ),
+    )
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return "executed"
+
+    assert sensitive_action_execution_guard.wrap_tool_call(request, handler) == "executed"
+    assert calls == 1
+
+    state["pending_action"] = pending_action()
+    with pytest.raises(SensitiveActionExecutionDenied):
+        sensitive_action_execution_guard.wrap_tool_call(request, handler)
+    assert calls == 1
