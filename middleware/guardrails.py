@@ -28,17 +28,20 @@ Agent/Tool에 전달하고, 그렇지 않으면 실행 전에 차단한다. 정�
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import re
 from typing import Any, Iterable
 
-from langchain.agents.middleware import AgentMiddleware, PIIMiddleware, after_model, before_agent
-from langchain.messages import AIMessage
+from langchain.agents.middleware import AgentMiddleware, PIIMiddleware, after_model, before_agent, wrap_tool_call
+from langchain.messages import AIMessage, ToolMessage
 from models.schemas import ErrorCode, ToolResult
 
 PROMPT_INJECTION = "PROMPT_INJECTION"
 SECRET_DISCLOSURE = "SECRET_DISCLOSURE"
 DETAILED_ADDRESS = "DETAILED_ADDRESS"
+UNTRUSTED_TOOL_OUTPUT = "UNTRUSTED_TOOL_OUTPUT"
 SAFE_OUTPUT_MESSAGE = "응답에 보호해야 할 내부 정보가 포함되어 있어 해당 내용을 제공할 수 없습니다."
+SAFE_TOOL_TEXT_PLACEHOLDER = "[UNTRUSTED_TOOL_TEXT_REMOVED]"
 _NO_DATA_EVIDENCE_CODES = frozenset({
     ErrorCode.NO_DATA,
     ErrorCode.AREA_NOT_FOUND,
@@ -64,6 +67,12 @@ _SECRET_PATTERNS = (
     re.compile(r"(?:api[ _-]?key|access[ _-]?token|secret|비밀번호|인증\s*정보).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
     re.compile(r"(?:environment\s*variables?|환경\s*변수|내부\s*설정).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
     re.compile(r"(?:system\s*prompt|시스템\s*프롬프트|developer\s*prompt|내부\s*지시).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
+)
+_TOOL_OUTPUT_INSTRUCTION_PATTERNS = (
+    re.compile(r"(?:이전|기존|앞선|내부).{0,12}(?:시스템\s*)?(?:지시|명령|규칙).{0,20}(?:무시|ignore|따르지)", re.I),
+    re.compile(r"(?:ignore|disregard|do not follow).{0,20}(?:system|developer|previous|internal).{0,20}(?:instructions?|rules?|prompt)", re.I),
+    re.compile(r"developer\s+instructions?.{0,20}(?:따르지|ignore|disregard|do not follow)", re.I),
+    re.compile(r"(?:이\s*tool|this\s*tool|tool).{0,20}(?:지시|instructions?).{0,20}(?:최우선|우선|follow|따라)", re.I),
 )
 _DETAILED_ADDRESS_PATTERNS = (
     re.compile(r"(?:[가-힣A-Za-z]+(?:로|길))\s*\d{1,5}(?:\s*-\s*\d{1,4})?"),
@@ -137,6 +146,99 @@ def inspect_model_output(value: str) -> GuardrailDecision:
     if any(pattern.search(value) for pattern in _OUTPUT_SECRET_PATTERNS):
         return GuardrailDecision(False, SECRET_DISCLOSURE, SAFE_OUTPUT_MESSAGE)
     return GuardrailDecision(True, sanitized_value=value)
+
+
+def _contains_untrusted_tool_instruction(value: str) -> bool:
+    return any(pattern.search(value) for pattern in (*_TOOL_OUTPUT_INSTRUCTION_PATTERNS, *_SECRET_PATTERNS))
+
+
+def _iter_tool_text(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_tool_text(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_tool_text(item)
+
+
+def _tool_output_content(tool_output: ToolResult | ToolMessage) -> Any:
+    if isinstance(tool_output, ToolResult):
+        return {"data": tool_output.data, "error_message": tool_output.error_message}
+    if isinstance(tool_output.content, str):
+        try:
+            return json.loads(tool_output.content)
+        except json.JSONDecodeError:
+            return tool_output.content
+    return tool_output.content
+
+
+def inspect_untrusted_tool_output(tool_output: ToolResult | ToolMessage) -> GuardrailDecision:
+    """외부 Tool의 text가 Agent 지시로 승격될 수 있는지 독립적으로 판정한다."""
+    if any(_contains_untrusted_tool_instruction(text) for text in _iter_tool_text(_tool_output_content(tool_output))):
+        return GuardrailDecision(False, UNTRUSTED_TOOL_OUTPUT)
+    return GuardrailDecision(True)
+
+
+def _sanitize_untrusted_tool_value(value: Any) -> tuple[Any, bool]:
+    if isinstance(value, str):
+        return (SAFE_TOOL_TEXT_PLACEHOLDER, True) if _contains_untrusted_tool_instruction(value) else (value, False)
+    if isinstance(value, dict):
+        sanitized: dict[Any, Any] = {}
+        changed = False
+        for key, item in value.items():
+            sanitized_item, item_changed = _sanitize_untrusted_tool_value(item)
+            sanitized[key] = sanitized_item
+            changed = changed or item_changed
+        return sanitized, changed
+    if isinstance(value, list):
+        sanitized_items = []
+        changed = False
+        for item in value:
+            sanitized_item, item_changed = _sanitize_untrusted_tool_value(item)
+            sanitized_items.append(sanitized_item)
+            changed = changed or item_changed
+        return sanitized_items, changed
+    return value, False
+
+
+def sanitize_untrusted_tool_output(tool_output: ToolResult | ToolMessage) -> ToolResult | ToolMessage:
+    """위험한 Tool text field만 치환하고 Tool 결과의 구조적 계약은 유지한다."""
+    if isinstance(tool_output, ToolResult):
+        data, data_changed = _sanitize_untrusted_tool_value(tool_output.data)
+        error_message, error_changed = _sanitize_untrusted_tool_value(tool_output.error_message)
+        if not data_changed and not error_changed:
+            return tool_output
+        return tool_output.model_copy(update={"data": data, "error_message": error_message})
+
+    content = tool_output.content
+    if not isinstance(content, str):
+        return tool_output
+    try:
+        decoded = json.loads(content)
+    except json.JSONDecodeError:
+        sanitized_content, changed = _sanitize_untrusted_tool_value(content)
+    else:
+        sanitized_value, changed = _sanitize_untrusted_tool_value(decoded)
+        sanitized_content = json.dumps(sanitized_value, ensure_ascii=False) if changed else content
+    return tool_output.model_copy(update={"content": sanitized_content}) if changed else tool_output
+
+
+def create_tool_output_guardrail() -> Any:
+    """최종 ToolMessage를 Model 경계 전에 정제하는 ``wrap_tool_call`` adapter를 만든다."""
+
+    @wrap_tool_call
+    def guard_tool_output(request: Any, handler: Any) -> Any:
+        result = handler(request)
+        # Command는 그래프 제어 신호이므로 Tool text 정책으로 변경하지 않는다.
+        return sanitize_untrusted_tool_output(result) if isinstance(result, (ToolResult, ToolMessage)) else result
+
+    return guard_tool_output
+
+
+# Agent는 condition gate 다음, retry middleware 앞에 이 객체를 등록한다.
+tool_output_guardrail = create_tool_output_guardrail()
 
 
 def inspect_tool_result_for_no_data(tool_result: ToolResult) -> GuardrailDecision:
