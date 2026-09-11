@@ -24,11 +24,12 @@ SCHEMAS_SOURCE: str
 try:  # pragma: no cover - 역할 4 선언 PR merge 후 이 경로만 남는다
     from models.schemas import (  # type: ignore[attr-defined]  # noqa: F401
         AgentRequest,
+        ApprovalDecision,
         AreaRecommendation,
         BusinessConditions,
         EvidenceItem,
         MarketScore,
-        PendingAction,
+        PendingActionView,
         RuntimeContext,
         StudySpotResponse,
         ToolResult,
@@ -38,7 +39,7 @@ try:  # pragma: no cover - 역할 4 선언 PR merge 후 이 경로만 남는다
     USING_MIRROR = False
 
 except ImportError:  # 임시 미러 -------------------------------------------------
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, model_validator
 
     SCHEMAS_SOURCE = "ui.contracts(mirror)"
     USING_MIRROR = True
@@ -109,16 +110,13 @@ except ImportError:  # 임시 미러 -------------------------------------------
         missing_data: list[str] = Field(default_factory=list)
         confidence: float
 
-    class PendingAction(BaseModel):
-        """공통계약 4절. 승인 버튼은 이 식별자에 묶인 의도만 전달한다."""
+    class PendingActionView(BaseModel):
+        """승인 화면에 노출해도 되는 공개용 승인 정보."""
 
         action_id: str
-        action_type: Literal["none", "send_report", "create_site_visit"]
-        payload_version: str
+        action_type: Literal["send_report", "create_site_visit"]
+        payload_version: int
         display_summary: str
-        status: str
-        user_id: str
-        session_id: str
 
     class StudySpotResponse(BaseModel):
         status: Literal[
@@ -133,21 +131,27 @@ except ImportError:  # 임시 미러 -------------------------------------------
         # docs/06은 "승인 버튼은 action_id·payload 버전에 묶인 의도만 보낸다"를 요구한다.
         # UI가 action_id를 만들어낼 수 없으므로 Optional 필드로 두고, 값이 없으면
         # 승인 버튼을 비활성화한다(가짜 식별자 생성 금지). 역할 4·5 확정 필요.
-        pending_action: Optional[PendingAction] = None
+        pending_action: Optional[PendingActionView] = None
 
     class ApprovalDecision(BaseModel):
         decision: Literal["approve", "reject"]
         action_id: str
-        payload_version: str
+        payload_version: int
 
     class AgentRequest(BaseModel):
         """UI → Agent 경계 입력. State 전체를 전달하거나 수정하지 않는다."""
 
-        messages: list[dict[str, str]] = Field(default_factory=list)
-        business_conditions: BusinessConditions = Field(
-            default_factory=BusinessConditions
-        )
+        message: Optional[str] = None
+        business_conditions: Optional[BusinessConditions] = None
         approval_decision: Optional[ApprovalDecision] = None
+
+        @model_validator(mode="after")
+        def _check_request(self) -> "AgentRequest":
+            if self.message is None and self.approval_decision is None:
+                raise ValueError("message 또는 approval_decision이 필요하다")
+            if self.approval_decision is not None and self.business_conditions is not None:
+                raise ValueError("승인 결정과 조건 변경은 한 요청에 함께 보낼 수 없다")
+            return self
 
 
 # --- 화면 표시용 상수 (모델이 아니라 UI 라벨) --------------------------------
@@ -214,7 +218,8 @@ __all__ = [
     "EvidenceItem",
     "MarketScore",
     "AreaRecommendation",
-    "PendingAction",
+    "PendingActionView",
+    "ApprovalDecision",
     "StudySpotResponse",
     "AgentRequest",
     "SCORE_FIELDS",

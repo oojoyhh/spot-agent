@@ -15,14 +15,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.contracts import PRIORITY_METRIC_LABELS
-
 import streamlit as st
 
 from ui import state as ui_state
 from ui.contracts import (
     APPROVAL_ACTION_LABELS,
     MISSING_SCORE_LABEL,
+    PRIORITY_METRIC_LABELS,
     PRIORITY_METRIC_OPTIONS,
     REQUIRED_FIELD_LABELS,
     SCORE_FIELDS,
@@ -53,14 +52,14 @@ def render_conditions_form(current: BusinessConditions) -> Optional[BusinessCond
         with col1:
             deposit_raw = st.text_input(
                 "보증금 예산 (만원)",
-                value="" if current.deposit_budget is None else str(current.deposit_budget),
+                value=ui_state.format_budget(current.deposit_budget),
                 placeholder="예: 5000",
                 help="비워 두면 '미입력'으로 전달합니다. 0을 넣으면 실제 0원으로 전달합니다.",
             )
         with col2:
             rent_raw = st.text_input(
                 "월세 예산 (만원)",
-                value="" if current.monthly_rent_budget is None else str(current.monthly_rent_budget),
+                value=ui_state.format_budget(current.monthly_rent_budget),
                 placeholder="예: 300",
                 help="비워 두면 '미입력'으로 전달합니다. 0을 넣으면 실제 0원으로 전달합니다.",
             )
@@ -92,8 +91,8 @@ def render_conditions_form(current: BusinessConditions) -> Optional[BusinessCond
 
         priorities = st.multiselect(
             "우선순위 지표 (참고용)",
-            options=list(PRIORITY_METRIC_LABELS),
-            default=list(current.priority_metrics),
+            options=list(PRIORITY_METRIC_OPTIONS),
+            default=[p for p in current.priority_metrics if p in PRIORITY_METRIC_OPTIONS],
             format_func=lambda key: PRIORITY_METRIC_LABELS[key],
             help="우선순위는 참고 정보입니다. 공통계약 5절에 따라 배점은 바뀌지 않습니다.",
         )
@@ -179,7 +178,7 @@ def _render_confidence(value: Optional[float]) -> None:
     )
 
 
-def _render_recommendation(index: int, recommendation: Any) -> None:
+def _render_recommendation(index: int, recommendation: Any) -> Optional[dict[str, str]]:
     name = getattr(recommendation, "area_name", "(이름 없음)")
     area_id = getattr(recommendation, "commercial_area_id", None)
     total = getattr(recommendation, "total_score", None)
@@ -199,6 +198,23 @@ def _render_recommendation(index: int, recommendation: Any) -> None:
         badges.append(":gray-badge[상권 ID 없음]")
     if badges:
         st.markdown(" ".join(badges))
+
+    favorite_clicked = False
+    if area_id is None:
+        st.button(
+            "☆ 즐겨찾기 저장",
+            key=f"favorite_missing_{index}",
+            disabled=True,
+            help="상권 ID가 없어 저장할 수 없습니다.",
+        )
+    else:
+        requested = ui_state.favorite_requested(area_id)
+        favorite_clicked = st.button(
+            "✓ 즐겨찾기 저장 요청됨" if requested else "☆ 즐겨찾기 저장",
+            key=f"favorite_{area_id}",
+            disabled=requested or ui_state.is_busy(),
+            help="상권 ID를 Agent에 전달해 사용자의 관심 상권으로 저장합니다.",
+        )
 
     st.dataframe(
         _score_rows(recommendation),
@@ -241,6 +257,10 @@ def _render_recommendation(index: int, recommendation: Any) -> None:
 
     st.divider()
 
+    if favorite_clicked and area_id is not None:
+        return {"commercial_area_id": area_id, "area_name": name}
+    return None
+
 
 def _render_comparison_table(recommendations: list[Any]) -> None:
     if len(recommendations) < 2:
@@ -271,7 +291,7 @@ def render_need_more_information(response: Any) -> None:
     st.info("왼쪽 입력값은 그대로 유지됩니다. 빠진 항목만 채우고 다시 요청해 주세요.")
 
 
-def render_success(response: Any) -> None:
+def render_success(response: Any) -> Optional[tuple[str, dict[str, str]]]:
     recommendations = list(getattr(response, "recommendations", []) or [])
     message = getattr(response, "message", "")
     if message:
@@ -285,8 +305,14 @@ def render_success(response: Any) -> None:
 
     st.caption(f"추천 {len(recommendations)}곳 (최대 3곳). 순서와 점수는 Agent 결과를 그대로 표시합니다.")
     _render_comparison_table(recommendations)
+    favorite = None
     for index, recommendation in enumerate(recommendations, start=1):
-        _render_recommendation(index, recommendation)
+        selected = _render_recommendation(index, recommendation)
+        if selected is not None:
+            favorite = selected
+    if favorite is not None:
+        return "favorite", favorite
+    return None
 
 
 def render_no_result(response: Any) -> None:
@@ -374,7 +400,7 @@ def render_response(response: Any) -> Optional[tuple[str, Any]]:
     if status == "need_more_information":
         render_need_more_information(response)
     elif status == "success":
-        render_success(response)
+        return render_success(response)
     elif status == "no_result":
         render_no_result(response)
     elif status == "approval_required":

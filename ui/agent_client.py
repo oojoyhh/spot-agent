@@ -25,7 +25,7 @@ from ui.contracts import (
     AreaRecommendation,
     BusinessConditions,
     EvidenceItem,
-    PendingAction,
+    PendingActionView,
     RuntimeContext,
     StudySpotResponse,
 )
@@ -39,6 +39,11 @@ except ImportError:
     BACKEND = "stub"
 
 AGENT_CONNECTED = BACKEND != "stub"
+FAVORITE_MESSAGE_PREFIX = "관심 상권 저장 요청:"
+
+
+def build_favorite_message(commercial_area_id: str) -> str:
+    return f"{FAVORITE_MESSAGE_PREFIX} {commercial_area_id}"
 
 #: stub이 지원하는 데모 상태. 사이드바에서 선택해 화면을 확인한다.
 STUB_SCENARIOS: tuple[str, ...] = (
@@ -89,12 +94,15 @@ def _stub_run_analysis(
     context: RuntimeContext,
     scenario: str,
 ) -> StudySpotResponse:
+    # 사이드바에서 명시적으로 선택한 Stub 시나리오
     if scenario.startswith("success (일부"):
         return _stub_partial_success()
     if scenario == "success":
         return _stub_success()
     if scenario == "need_more_information":
-        return _stub_need_more(["monthly_rent_budget", "operating_end_time"])
+        return _stub_need_more(
+            ["monthly_rent_budget", "operating_end_time"]
+        )
     if scenario == "no_result":
         return _stub_no_result()
     if scenario.startswith("no_result (시스템"):
@@ -102,18 +110,30 @@ def _stub_run_analysis(
     if scenario == "approval_required":
         return _stub_approval_required(context)
 
-    # 승인 요청은 business_conditions 검사보다 먼저 처리
+    # 이하: "자동 (입력값에 따름)" 시나리오
+
+    if request.message and request.message.startswith(
+        FAVORITE_MESSAGE_PREFIX
+    ):
+        return StudySpotResponse(
+            status="no_result",
+            recommendations=[],
+            message=(
+                "[stub] 즐겨찾기 저장 요청을 확인했습니다. "
+                "Agent가 연결되지 않아 실제 Store에는 저장되지 않았습니다."
+            ),
+        )
+
+    # 승인 요청에는 business_conditions가 없으므로 먼저 검사
     if request.approval_decision is not None:
         return _stub_after_decision(request)
 
     conditions = request.business_conditions or BusinessConditions()
+    missing = _missing_required(conditions)
 
-    # 자동 모드: 필수 조건이 빠졌으면 데이터 Tool을 호출하지 않고 되묻는다(INT-02).
-    missing = _missing_required(request.business_conditions)
     if missing:
         return _stub_need_more(missing)
-    if request.approval_decision is not None:
-        return _stub_after_decision(request)
+
     return _stub_partial_success()
 
 
@@ -222,19 +242,16 @@ def _stub_system_error() -> StudySpotResponse:
 
 
 def _stub_approval_required(context: RuntimeContext) -> StudySpotResponse:
-    action = PendingAction(
+    action = PendingActionView(
         action_id=f"stub-{uuid.uuid4().hex[:8]}",
         action_type="send_report",
-        payload_version="v1",
+        payload_version=1,
         display_summary=(
             "[stub] 분석 보고서를 아래 대상에게 전송합니다.\n"
             "- 대상: example@stub.local\n"
             "- 내용: 추천 상권 2곳 요약\n"
             "※ Mock 구현이므로 승인해도 실제 전송되지 않습니다."
         ),
-        status="pending",
-        user_id=context.user_id,
-        session_id=context.session_id,
     )
     return StudySpotResponse(
         status="approval_required",

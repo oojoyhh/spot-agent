@@ -32,7 +32,8 @@ K_SENT_DECISIONS = "ui_sent_decisions"  # 이미 전송한 승인 의도 키 집
 K_BUSY = "ui_busy"                    # 호출 중 버튼 잠금
 K_CONTEXT = "ui_runtime_context"
 K_STUB_SCENARIO = "ui_stub_scenario"
-
+K_FAVORITE_REQUESTS = "ui_favorite_requests"
+K_FAVORITES = "ui_favorites"
 
 def init() -> None:
     """앱 최초 실행 시 한 번 세션 기본값을 만든다."""
@@ -42,6 +43,12 @@ def init() -> None:
     st.session_state.setdefault(K_SENT_DECISIONS, set())
     st.session_state.setdefault(K_BUSY, False)
     st.session_state.setdefault(K_STUB_SCENARIO, "자동 (입력값에 따름)")
+    st.session_state.setdefault(K_FAVORITE_REQUESTS, set())
+    st.session_state.setdefault(K_FAVORITES, {})
+
+    # 기존 세션에 ID만 저장된 항목도 목록에서 확인할 수 있게 옮긴다.
+    for area_id in st.session_state[K_FAVORITE_REQUESTS]:
+        st.session_state[K_FAVORITES].setdefault(area_id, area_id)
     if K_CONTEXT not in st.session_state:
         st.session_state[K_CONTEXT] = _build_runtime_context()
 
@@ -75,6 +82,8 @@ def reset_session() -> None:
         K_SENT_DECISIONS,
         K_BUSY,
         K_CONTEXT,
+        K_FAVORITE_REQUESTS,
+        K_FAVORITES,
     ):
         st.session_state.pop(key, None)
     init()
@@ -130,13 +139,28 @@ def parse_time(raw: str) -> tuple[Optional[str], Optional[str]]:
         return None, "HH:MM 형식으로 입력해 주세요. (예: 09:00)"
     return text, None
 
+def favorite_requested(commercial_area_id: str) -> bool:
+    return commercial_area_id in st.session_state[K_FAVORITE_REQUESTS]
+
+
+def mark_favorite_requested(commercial_area_id: str, area_name: str) -> None:
+    st.session_state[K_FAVORITE_REQUESTS].add(commercial_area_id)
+    st.session_state[K_FAVORITES][commercial_area_id] = area_name
+
+
+def favorites() -> list[dict[str, str]]:
+    """현재 UI 세션에서 저장 요청한 관심 상권을 반환한다."""
+    return [
+        {"commercial_area_id": area_id, "area_name": area_name}
+        for area_id, area_name in st.session_state[K_FAVORITES].items()
+    ]
+
 
 # --- 응답 --------------------------------------------------------------------
 
 
 def last_response() -> Any:
     return st.session_state[K_LAST_RESPONSE]
-
 
 def set_last_response(response: Any) -> None:
     st.session_state[K_LAST_RESPONSE] = response

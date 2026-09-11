@@ -20,7 +20,13 @@ import streamlit as st
 
 from ui import components
 from ui import state as ui_state
-from ui.agent_client import AGENT_CONNECTED, BACKEND, STUB_SCENARIOS, call_agent
+from ui.agent_client import (
+    AGENT_CONNECTED,
+    BACKEND,
+    STUB_SCENARIOS,
+    build_favorite_message,
+    call_agent,
+)
 from ui.contracts import SCHEMAS_SOURCE, USING_MIRROR, AgentRequest
 
 st.set_page_config(page_title="StudySpot", page_icon="📚", layout="wide")
@@ -28,35 +34,43 @@ st.set_page_config(page_title="StudySpot", page_icon="📚", layout="wide")
 ui_state.init()
 
 
-def _request_analysis(*, message: str | None = None, approval: dict | None = None) -> None:
+def _request_analysis(
+    *,
+    message: str | None = None,
+    approval: dict | None = None,
+    include_conditions: bool = True,
+    cache_response: bool = True,
+) -> object | None:
     """호출 경계를 통과하는 유일한 함수. 여기 외에서 Agent를 호출하지 않는다."""
+    ui_state.set_busy(True)
     try:
         if approval is not None:
-            # 승인 요청에는 business_conditions를 같이 보내면 안 됨
             request = AgentRequest(approval_decision=approval)
         else:
             request = AgentRequest(
                 message=message,
-                business_conditions=ui_state.conditions(),
+                business_conditions=ui_state.conditions() if include_conditions else None,
             )
-
-        ui_state.set_busy(True)
         with st.spinner("분석 중입니다..."):
             response = call_agent(
                 request,
                 ui_state.context(),
                 stub_scenario=st.session_state[ui_state.K_STUB_SCENARIO],
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
+        # TODO(역할 3): Guardrail 차단·반복 제한·타임아웃 예외 타입 확정 후 분기한다.
+        # 앱을 중단시키지 않고 안내만 하며, 원문 응답·키를 화면에 노출하지 않는다(INT-09).
         ui_state.set_busy(False)
         st.error(f"요청을 처리하지 못했습니다. ({type(exc).__name__})")
-        return
-
+        return None
     ui_state.set_busy(False)
-    ui_state.set_last_response(response)
 
-    if response.message:
-        ui_state.append_message("assistant", response.message)
+    if cache_response:
+        ui_state.set_last_response(response)
+    message = getattr(response, "message", "")
+    if message:
+        ui_state.append_message("assistant", message)
+    return response
 
 
 # --- 사이드바 ----------------------------------------------------------------
@@ -93,6 +107,19 @@ with st.sidebar:
     st.caption(f"session_id: `{context.session_id[:8]}…`")
     # user_id·user_role은 실행 계층이 주입한다. 화면에서 바꿀 수 없다.
 
+    st.divider()
+    favorite_items = ui_state.favorites()
+    favorite_title = "즐겨찾기" if AGENT_CONNECTED else "즐겨찾기 요청"
+    st.subheader(f"★ {favorite_title} ({len(favorite_items)})")
+    if not favorite_items:
+        st.caption("아직 저장한 상권이 없습니다.")
+    else:
+        for favorite in favorite_items:
+            st.markdown(f"**{favorite['area_name']}**")
+            st.caption(f"commercial_area_id: `{favorite['commercial_area_id']}`")
+    if not AGENT_CONNECTED:
+        st.caption("Stub 모드에서는 현재 세션의 저장 요청만 표시하며, 실제 Store에는 저장되지 않습니다.")
+
 
 # --- 본문 -------------------------------------------------------------------
 
@@ -100,7 +127,6 @@ st.header("출점 후보 분석")
 
 if submitted_conditions is not None:
     ui_state.set_conditions(submitted_conditions)
-
     analysis_message = "입력한 조건으로 분석을 요청합니다."
     ui_state.append_message("user", analysis_message)
     _request_analysis(message=analysis_message)
@@ -111,20 +137,36 @@ with tab_result:
     decision = components.render_response(ui_state.last_response())
     if decision is not None:
         action, pending = decision
-        key = ui_state.decision_key(pending.action_id, pending.payload_version, action)
-        if ui_state.already_sent(key):
-            # 중복 클릭·재실행 방어. 서버 측 중복 방지를 대체하지 않는다(INT-07).
-            st.info("이미 전달한 요청입니다. 다시 전송하지 않았습니다.")
+        if action == "favorite":
+            area_id = pending["commercial_area_id"]
+            if ui_state.favorite_requested(area_id):
+                st.info("이미 즐겨찾기 저장 요청을 전달했습니다.")
+            else:
+                favorite_message = build_favorite_message(area_id)
+                ui_state.append_message("user", favorite_message)
+                response = _request_analysis(
+                    message=favorite_message,
+                    include_conditions=False,
+                    cache_response=False,
+                )
+                if response is not None:
+                    ui_state.mark_favorite_requested(area_id, pending["area_name"])
+                    st.rerun()
         else:
-            ui_state.mark_sent(key)
-            _request_analysis(
-                approval={
-                    "decision": action,
-                    "action_id": pending.action_id,
-                    "payload_version": pending.payload_version,
-                }
-            )
-            st.rerun()
+            key = ui_state.decision_key(pending.action_id, pending.payload_version, action)
+            if ui_state.already_sent(key):
+                # 중복 클릭·재실행 방어. 서버 측 중복 방지를 대체하지 않는다(INT-07).
+                st.info("이미 전달한 요청입니다. 다시 전송하지 않았습니다.")
+            else:
+                ui_state.mark_sent(key)
+                _request_analysis(
+                    approval={
+                        "decision": action,
+                        "action_id": pending.action_id,
+                        "payload_version": pending.payload_version,
+                    }
+                )
+                st.rerun()
 
 with tab_chat:
     history = ui_state.messages()
