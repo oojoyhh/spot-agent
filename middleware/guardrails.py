@@ -10,9 +10,10 @@ Agent 실행 전에 종료한다. ``build_pii_middlewares``는 email/phone을
 보조 helper다.
 
 Prompt Injection은 기존 지시 체계를 변경하려는 요청이고, Secret
-Disclosure는 System Prompt/API Key 같은 내부정보 공개 요청이다. 정규식
-탐지는 알려진 공격 신호를 줄이는 1차 방어선일 뿐 모든 injection을
-완전히 탐지한다고 가정하지 않는다.
+Disclosure는 System Prompt/API Key 같은 내부정보 공개 요청이다. Detailed
+Address는 마스킹 후 처리하지 않고 MVP 입력 정책에 따라 Agent/Tool에
+전달하기 전 차단한다. 정규식 탐지는 알려진 공격 신호를 줄이는 1차 방어선일
+뿐 모든 injection이나 주소 형식을 완전히 탐지한다고 가정하지 않는다.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from langchain.messages import AIMessage
 
 PROMPT_INJECTION = "PROMPT_INJECTION"
 SECRET_DISCLOSURE = "SECRET_DISCLOSURE"
+DETAILED_ADDRESS = "DETAILED_ADDRESS"
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,11 @@ _SECRET_PATTERNS = (
     re.compile(r"(?:environment\s*variables?|환경\s*변수|내부\s*설정).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
     re.compile(r"(?:system\s*prompt|시스템\s*프롬프트|developer\s*prompt|내부\s*지시).{0,20}(?:알려|보여|공개|출력|reveal|show|print)", re.I),
 )
+_DETAILED_ADDRESS_PATTERNS = (
+    re.compile(r"(?:[가-힣A-Za-z]+(?:로|길))\s*\d{1,5}(?:\s*-\s*\d{1,4})?"),
+    re.compile(r"\d{1,4}(?:\s*-\s*\d{1,4})?\s*번지"),
+    re.compile(r"(?:아파트|APT)\s*\d{1,4}\s*동\s*\d{1,5}\s*호", re.I),
+)
 
 
 # Agent Graph에 연결되기 전에도 검증 가능한 입력 보안 정책 계층.
@@ -56,7 +63,14 @@ def inspect_user_input(value: str) -> GuardrailDecision:
         return GuardrailDecision(False, SECRET_DISCLOSURE)
     if any(pattern.search(value) for pattern in _INJECTION_PATTERNS):
         return GuardrailDecision(False, PROMPT_INJECTION)
+    if detect_detailed_address(value):
+        return GuardrailDecision(False, DETAILED_ADDRESS)
     return GuardrailDecision(True, sanitized_value=value)
+
+
+def detect_detailed_address(value: str) -> bool:
+    """MVP에 불필요한 명확한 상세 주소만 보수적으로 탐지한다."""
+    return any(pattern.search(value) for pattern in _DETAILED_ADDRESS_PATTERNS)
 
 
 def _last_message_text(messages: Iterable[Any]) -> str:
@@ -73,13 +87,21 @@ def input_guardrail(state: dict[str, Any], runtime: Any) -> dict[str, Any] | Non
     decision = inspect_user_input(_last_message_text(state.get("messages", [])))
     if decision.allowed:
         return None
+    if decision.reason == DETAILED_ADDRESS:
+        message = (
+            "상세 주소는 개인정보 보호를 위해 채팅 분석 입력으로 사용하지 않습니다. "
+            "상권 분석을 원하시면 왼쪽 분석 조건 입력폼에서 구·동·역·상권 단위의 희망 지역을 입력해 주세요."
+        )
+    else:
+        message = f"요청이 안전 정책에 의해 차단되었습니다. ({decision.reason})"
     return {
-        "messages": [AIMessage(content=f"요청이 안전 정책에 의해 차단되었습니다. ({decision.reason})")],
+        "messages": [AIMessage(content=message)],
         "jump_to": "end",
     }
 
 
-# 주소는 분석 대상 상권/사업장 위치일 수 있어 1차 규칙 기반 마스킹에서 제외한다.
+# 상세 주소는 masking 대상이 아니라 MVP 입력 정책상 before_agent에서 차단한다.
+# 구·동·역·상권 단위 위치는 정상 분석 입력으로 Agent에 전달한다.
 PHONE_NUMBER_PATTERN = r"(?<!\d)(?:\+?82[-\s]?)?0?1[0-9][\s-]?\d{3,4}[\s-]?\d{4}(?!\d)"
 
 

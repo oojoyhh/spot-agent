@@ -1,4 +1,13 @@
-from middleware.guardrails import PROMPT_INJECTION, SECRET_DISCLOSURE, input_guardrail, inspect_user_input, mask_pii_for_storage
+import pytest
+
+from middleware.guardrails import (
+    DETAILED_ADDRESS,
+    PROMPT_INJECTION,
+    SECRET_DISCLOSURE,
+    input_guardrail,
+    inspect_user_input,
+    mask_pii_for_storage,
+)
 
 
 def test_grd_01_masks_email_and_phone_number():
@@ -36,3 +45,34 @@ def test_system_prompt_and_api_key_disclosure_requests_are_blocked():
         decision = inspect_user_input(text)
         assert not decision.allowed
         assert decision.reason == SECRET_DISCLOSURE
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["서울 노원구", "강남구 쪽으로 분석해줘", "대치동은 어때?", "강남역 근처 상권을 보고 싶어"],
+)
+def test_commercial_area_location_expressions_are_allowed(text):
+    assert inspect_user_input(text).allowed
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "서울 강남구 테헤란로 123 근처를 분석해줘",
+        "서울 노원구 동일로 1234에서 열고 싶어",
+        "OO아파트 101동 1203호 근처를 분석해줘",
+    ],
+)
+def test_detailed_address_is_blocked(text):
+    decision = inspect_user_input(text)
+    assert not decision.allowed
+    assert decision.reason == DETAILED_ADDRESS
+
+
+def test_detailed_address_ends_agent_without_echoing_input():
+    text = "서울 강남구 테헤란로 123 근처를 분석해줘"
+    outcome = input_guardrail.before_agent({"messages": [{"content": text}]}, None)
+    message = outcome["messages"][0].content
+    assert outcome["jump_to"] == "end"
+    assert "구·동·역·상권" in message
+    assert text not in message
