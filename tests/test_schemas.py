@@ -738,6 +738,56 @@ def test_sch26_state_schema_works_with_create_agent(caplog):
     assert "unregistered" not in logged
 
 
+def test_sch32_structured_response_survives_checkpoint(caplog):
+    """SCH-32 create_agent(response_format=StudySpotResponse)의 최종 응답이 checkpointer 복원 후에도 모델로 유지된다."""
+    import logging
+
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    from models.schemas import STATE_CHECKPOINT_TYPES
+
+    class ToolCallingFakeModel(GenericFakeChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    recommendation = AreaRecommendation(
+        **score_kwargs(),
+        commercial_area_id="3110001",
+        area_name="강남역",
+        evidence=[EvidenceItem(source="sk_open_api", summary="학원 수요", is_mock=False)],
+    )
+    response = StudySpotResponse(status="success", recommendations=[recommendation], message="추천 결과")
+    args = response.model_dump(mode="json")
+    model = ToolCallingFakeModel(
+        messages=iter(
+            AIMessage(content="", tool_calls=[{"name": "StudySpotResponse", "args": args, "id": f"call-{i}"}])
+            for i in range(2)
+        )
+    )
+    saver = InMemorySaver(serde=JsonPlusSerializer(allowed_msgpack_modules=STATE_CHECKPOINT_TYPES))
+    agent = create_agent(
+        model=model,
+        tools=[],
+        state_schema=StudySpotState,
+        context_schema=RuntimeContext,
+        response_format=StudySpotResponse,
+        checkpointer=saver,
+    )
+    config = {"configurable": {"thread_id": "thread-32"}}
+    context = RuntimeContext(user_id="u1", session_id="s1", user_role="user")
+
+    with caplog.at_level(logging.WARNING):
+        agent.invoke({"messages": [HumanMessage("강남 상권 추천해줘")]}, context=context, config=config)
+        agent.invoke({"messages": [HumanMessage("다시 보여줘")]}, context=context, config=config)
+        restored = agent.get_state(config).values["structured_response"]
+
+    assert restored == response
+    assert isinstance(restored.recommendations[0], AreaRecommendation)
+    assert "Blocked" not in caplog.text
+    assert "unregistered" not in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # SCH-27~31 리뷰 반영 보완
 # ---------------------------------------------------------------------------

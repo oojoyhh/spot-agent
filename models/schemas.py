@@ -797,9 +797,23 @@ class StudySpotState(AgentState):
 
 STATE_CHECKPOINT_TYPES: tuple[tuple[str, str], ...] = tuple(
     (__name__, name)
-    for name in ("BusinessConditions", "AreaIdentity", "ToolResult", "ErrorCode", "MarketScore", "PendingAction")
+    for name in (
+        "BusinessConditions",
+        "AreaIdentity",
+        "ToolResult",
+        "ErrorCode",
+        "MarketScore",
+        "PendingAction",
+        # create_agent(response_format=StudySpotResponse)가 최종 응답을 State의 structured_response에 저장한다
+        "StudySpotResponse",
+        "AreaRecommendation",
+        "EvidenceItem",
+        "PendingActionView",
+        "ActionResult",
+    )
 )
-"""StudySpotState에 저장되는 모델 목록. checkpointer가 경고 없이 복원하도록 허용 목록에 넣는다.
+"""StudySpotState에 저장되는 모델 목록 (최종 응답 structured_response 포함).
+checkpointer가 경고 없이 복원하도록 허용 목록에 넣는다. 빠지면 복원 시 모델이 dict로 바뀐다.
 
     from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
