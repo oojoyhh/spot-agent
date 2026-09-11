@@ -2,8 +2,8 @@
 
 서울 내 API 지원 상권 5~10곳에서 스터디카페 출점 후보를 최대 3곳 추천하는 LangChain Agent.
 
-> **현재 상태: 구조·계약만 준비됨. 기능 미구현.**
-> 각 파일 상단 docstring에 담당자·목적·명세 문서가 적혀 있다.
+> **현재 상태: Streamlit UI와 Agent 진입점, 조회·점수·메모리·가드레일 모듈이 통합됨.**
+> 일부 외부 API는 Mock fallback을 사용하며, 결과 화면에서 Mock 여부와 누락 데이터를 구분한다.
 
 ## 폴더 구조와 담당
 
@@ -28,7 +28,13 @@ pip install -r requirements.txt
 cp .env.example .env   # 키 값 입력, 커밋 금지
 ```
 
-실행·테스트 명령은 기능 구현 후 추가한다.
+```bash
+streamlit run app.py --server.port 8502
+pytest -q
+```
+
+브라우저에서 `http://localhost:8502`를 열면 된다. `.env`의 키 값은 화면이나 로그에 출력하지 않는다.
+실제 API를 호출하지 않고 상태별 UI만 확인하려면 `STUDYSPOT_FORCE_STUB=1 streamlit run app.py --server.port 8502`로 실행한다.
 
 ## 개발 규칙
 
