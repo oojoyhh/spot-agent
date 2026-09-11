@@ -15,13 +15,12 @@
 | `docs/설계서.md` | 전체 구조도·분기 흐름·모듈 의존성·상태 전이 |
 | `tests/test_agent_flow.py` | 조건 누락·Tool 순서·재계획·종료·승인 흐름 |
 | `README.md`, `requirements.txt`, `.env.example`, `.gitignore` | 실행 환경·버전·Mock 실행 안내·공통 설정 관리 |
-| `tools/market_tools.py`, 제안 추가 `tools/action_tools.py` | 미배정 기능의 인터페이스·통합 책임을 맡는 추가 제안. 실 구현 담당은 팀이 별도 확정 |
 
 `main_agent.py`는 이 역할이 수정한다. 다른 역할은 연결 요청과 테스트 방법을 전달한다.
 
 ## 입력/출력 계약
 
-제안 진입점: `run_analysis(request: AgentRequest, context: RuntimeContext) -> StudySpotResponse`.
+공통 Agent 진입점: `run_analysis(request: AgentRequest, context: RuntimeContext) -> StudySpotResponse`.
 
 입력은 messages·business_conditions와 선택적 approval_decision이다. UI로부터 임의 State 전체나 권한을 받지 않는다. 모델 응답을 그대로 UI에 넘기지 않고 StudySpotResponse 검증 후 반환한다.
 
@@ -50,7 +49,7 @@
 
 실행 가능한 Tool만 등록한다. 미구현 선언을 등록하여 정상 호출처럼 보이게 하지 않는다. 여러 후보는 식별자로 구분하고 조회·계산 결과를 다른 상권과 섞지 않는다. 후보 3개를 채우려고 없는 지역을 생성하지 않는다.
 
-## 미배정 Tool 계약 제안
+## 역할 1 API Tool의 Agent 연결 계약
 
 | Tool | 입력 → 정상 data | 책임 |
 |---|---|---|
@@ -63,7 +62,7 @@
 | send_analysis_report | 승인된 서버 측 action → 실행 결과 식별자 | 보고서 전송 |
 | create_site_visit_event | 승인된 서버 측 action → 실행 결과 식별자 | 일정 생성 |
 
-모두 ToolResult를 반환한다. 역할 4가 상세 payload를 선언한다. 역할 1의 3개 SK Tool은 이 표에 포함시켜 중복 구현하지 않는다. market/action 실 API 구현을 별도 배정하지 않았다면 Mock 데모 범위를 README에 명시한다. 비실행 Mock은 '실제 전송/등록되지 않음'을 표시한다.
+모두 ToolResult를 반환한다. 역할 1 중우가 API 어댑터와 단위 테스트를 구현하고 역할 4가 상세 payload를 선언한다. 본 역할은 실행 가능한 Tool만 Agent에 등록하고 흐름을 연결한다. 비실행 Mock은 '실제 전송/등록되지 않음'을 표시한다.
 
 ## System Prompt 작성 요구
 
@@ -73,7 +72,7 @@
 
 ## 의존 모듈
 
-역할 2는 State/Store, 역할 3은 보호·복구, 역할 4는 공통 모델·점수, 역할 1은 SK 데이터, 역할 6은 입출력 화면을 제공한다. 본 역할은 각 계약 버전·등록 여부·Mock 상태를 확인한다. 순환 import를 피하고 공통 모델이 UI·Agent 구현을 참조하지 않게 한다.
+역할 2는 State/Store, 역할 3은 보호·복구, 역할 4는 공통 모델·점수, 역할 1은 전체 데이터·행동 API Tool, 역할 6은 입출력 화면을 제공한다. 본 역할은 각 계약 버전·등록 여부·Mock 상태를 확인한다. 순환 import를 피하고 공통 모델이 UI·Agent 구현을 참조하지 않게 한다.
 
 ## 테스트 범위
 
@@ -103,4 +102,4 @@ Mock 기반 전체 흐름이 API 키 없이 실행 가능하고, 상태·보호�
 - [ ] UI 진입점과 State·Middleware 연결 검토
 - [ ] 필수 조건·재계획·종료·승인 흐름 테스트 첨부
 - [ ] 공통 버전·Mock 실행·검증 방법 문서화
-- [ ] 미배정 Tool의 담당/보류 상태 명시
+- [ ] 역할 1의 API Tool 등록 상태와 실 API/Mock 범위 명시
