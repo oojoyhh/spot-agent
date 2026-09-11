@@ -176,7 +176,9 @@ def test_build_agent_registers_current_guardrail_middleware_without_hitl(monkeyp
     registered = captured["middleware"]
     assert input_guardrail in registered
     assert output_secret_guardrail in registered
-    assert tool_retry_middleware in registered
+    # Agent는 기본 wrapper 대신 Mock provider가 연결된 인스턴스를 등록한다.
+    assert main_agent.tool_retry_middleware in registered
+    assert main_agent.tool_output_guardrail in registered
 
     pii_adapter = next(item for item in registered if hasattr(item, "middlewares"))
     assert [item.pii_type for item in pii_adapter.middlewares] == ["email", "phone_number"]

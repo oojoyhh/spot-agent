@@ -38,11 +38,12 @@ from langgraph.store.base import BaseStore
 # 프로젝트에서 작성된 시스템 프롬프트
 from agent.prompts import SYSTEM_PROMPT
 
-# 조회 구현은 담당 모듈을 사용하고 아래 함수들은 Agent 연결만 담당한다.
+# Tools 조회 구현은 담당 모듈을 사용하고 아래 함수들은 Agent 연결만 담당한다.
 from tools import academy_tools, action_tools, market_tools, scoring_tools, subway_tools
 from tools.api_types import SchoolAge, VisitorTargetAge
+from tools.mock_tools import mock_tool_call_provider
 
-# Memory — 단기 State(checkpointer)와 장기 Store는 이미 구현되어 있다.
+# Memory
 from memory import (
     MemoryStoreError,
     build_new_session_conditions,
@@ -62,8 +63,9 @@ from middleware.guardrails import (
     build_pii_middlewares,
     input_guardrail,
     output_secret_guardrail,
+    tool_output_guardrail,
 )
-from middleware.middleware import ensure_sensitive_action_approved, tool_retry_middleware
+from middleware.middleware import create_tool_retry_middleware, ensure_sensitive_action_approved
 
 # Schemas
 from models.schemas import (
@@ -87,6 +89,22 @@ from models.schemas import (
 
 
 logger = logging.getLogger(__name__)
+
+# 이번 Agent에서 합의한 다섯 조회만 Mock으로 대체한다.
+_MOCK_TOOL_NAMES = frozenset({
+    "get_academy_demand", "get_station_exit_traffic",
+    "get_visitor_demographics", "get_district_congestion", "search_competitors",
+})
+
+
+def _agent_mock_provider(request: Any) -> ToolMessage | None:
+    """대상 이름만 제한하고 Mock 생성과 원래 오류 보존은 담당 모듈에 맡긴다."""
+    if request.tool_call["name"] not in _MOCK_TOOL_NAMES:
+        return None
+    return mock_tool_call_provider(request)
+
+
+tool_retry_middleware = create_tool_retry_middleware(mock_provider=_agent_mock_provider)
 
 # 예제의 중복 클릭과 동시 요청을 직렬화한다. 사용자 데이터는 Store/State에 둔다.
 # 여러 서버 프로세스로 배포할 때는 저장소의 원자적 상태 전이로 대체해야 한다.
@@ -586,7 +604,8 @@ def build_agent(
             *build_pii_middlewares(),  # 입출력 email/phone 마스킹
             output_secret_guardrail,  # after_model: 응답에 노출된 secret 치환
             require_analysis_conditions,  # 필수 조건 없이 조회/계산 실행 금지
-            tool_retry_middleware,  # wrap_tool_call: 일시 장애 재시도 (cache/mock 미연결)
+            tool_output_guardrail,  # 재시도와 Mock을 포함한 최종 Tool 응답 정제
+            tool_retry_middleware,  # 일시 오류: 최초 1회 + 재시도 2회 후 Mock
             collect_analysis_results,  # 병렬 조회 결과는 모델 호출 전 한 번에 저장
             example_system_prompt,  # 현재 조건과 연결된 기능 범위를 모델에 전달
             # 승인 UI 응답은 collect_analysis_results에서 종료하며,
