@@ -31,7 +31,7 @@ flowchart TD
     Score --> Scored{"유효한 점수 후보 존재?"}
     Scored -->|"아니요"| None
     Scored -->|"예"| Rank["조건 충족 후보 정렬<br/>상위 최대 3곳 선정"]
-    Rank --> Output["StudySpotResult 구성<br/>출처 · 장점 · 위험 · 누락 표시"]
+    Rank --> Output["StudySpotResponse 구성<br/>출처 · 장점 · 위험 · 누락 표시"]
     Output --> Verify{"스키마와 근거 검증 통과?"}
     Verify -->|"예"| Success["success<br/>결과 표시 · State 저장"]
     Verify -->|"아니요"| Limit{"수정 횟수 남음?"}
@@ -137,7 +137,7 @@ sequenceDiagram
     Score-->>Agent: 갱신된 점수와 순위 산정 자료
     Agent->>Agent: 응답 스키마와 근거 검증
     Agent->>Memory: 변경 조건과 새 분석 결과 저장
-    Agent-->>UI: 갱신된 StudySpotResult
+    Agent-->>UI: 갱신된 StudySpotResponse
     UI-->>User: 바뀐 조건 · 점수 · 순위 표시
 ```
 

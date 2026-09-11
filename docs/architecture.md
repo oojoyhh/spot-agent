@@ -146,7 +146,7 @@ flowchart LR
 | 구분 | 항목 | 수명과 갱신 기준 |
 | --- | --- | --- |
 | Runtime Context | `user_id`, `session_id`, `user_role` | 애플리케이션이 호출 시 제공한다. 해당 호출에서 변경하지 않는다. |
-| State | `business_conditions`, `searched_areas`, `tool_results`, `current_candidates`, `conversation_history` | 대화 중 갱신한다. 같은 세션에서는 Checkpointer로 복원한다. |
+| State | `business_conditions`, `searched_areas`, `tool_results`, `current_candidates`, `messages` | 대화 중 갱신한다. 같은 세션에서는 Checkpointer로 복원한다. |
 | Store | `user_preferences`, `saved_shortlist` | 사용자 동의 또는 명시적 저장 요청에 따라 기록하고 새 세션에서도 읽는다. |
 | 조회 캐시 | 상권·조회 인자별 원천 데이터 | 중복 API 호출 감소와 장애 시 대체에 사용한다. TTL과 저장 위치는 합의 필요다. |
 
@@ -164,7 +164,7 @@ flowchart LR
 | 계산 Tool 호출 전 | 후보·단위·기준 시점 정합성 확인, 누락 구분, 현재 조건과 결과 연결 |
 | 저장 Tool 실행 전 | 명시적 저장 요청 확인, 사용자 분리, 개인정보 마스킹 |
 | 외부 행동 실행 전 | 실행 내용 제시, 승인·수정·거절 처리, 승인된 내용과 실제 인자 일치 확인 |
-| 최종 응답 전 | `StudySpotResult` 검증, Tool 수치와 응답 대조, 출처·누락·Mock 표시 |
+| 최종 응답 전 | `StudySpotResponse` 검증, Tool 수치와 응답 대조, 출처·누락·Mock 표시 |
 
 API 미지원 지역과 정상적인 빈 결과는 통신 장애가 아니다. 지원하지 않는 지역에 Mock 상권을 생성하지 않으며, 확인된 0건과 조회 실패도 구분한다. 상세 분기는 [동작 흐름](flow.md)을 따른다.
 

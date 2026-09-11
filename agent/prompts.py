@@ -46,7 +46,7 @@ SYSTEM_PROMPT = """
 - 추천 가능한 후보가 없으면 조건 변경을 안내한다.
 
 [최종 응답]
-프로그램에서 지정한 StudySpotResult 형식을 따른다.
+프로그램에서 지정한 StudySpotResponse 형식을 따른다.
 처리 상태는 success, need_more_information, no_result,
 approval_required 중 상황에 맞는 값을 사용한다.
 추천에는 계산된 점수, 장점, 위험요인, 근거와 출처,
