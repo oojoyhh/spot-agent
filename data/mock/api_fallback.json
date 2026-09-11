@@ -1,0 +1,63 @@
+{
+  "description": "API 장애 시 시연을 계속하기 위한 임의 Mock 값이다. 실제 상권 통계로 해석하지 않으며 값은 이 파일에서 교체한다.",
+  "areas": [
+    {
+      "commercial_area_id": "9307",
+      "administrative_code": "1168010100",
+      "area_name": "역삼역남부 3번출구",
+      "latitude": 37.50012959,
+      "longitude": 127.03529551,
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    },
+    {
+      "commercial_area_id": "9368",
+      "administrative_code": "1168010100",
+      "area_name": "역삼역북부 4번출구",
+      "latitude": 37.50043511,
+      "longitude": 127.03512885,
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    },
+    {
+      "commercial_area_id": "9310",
+      "administrative_code": "1168010100",
+      "area_name": "역삼역북부 7번출구",
+      "latitude": 37.50110173,
+      "longitude": 127.03693422,
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    }
+  ],
+  "academy": {
+    "academy_id": "mock-academy-1",
+    "academy_name": "시연용 학원",
+    "category": "입시/보습",
+    "estimated_academy_call_customers": 1200
+  },
+  "station_exit_traffic": {
+    "exit_number": "1",
+    "persons_per_hour": 320
+  },
+  "district_congestion": {
+    "persons_per_m2": 0.72,
+    "level": 6
+  },
+  "visitor_demographics": {
+    "male_percent": 48,
+    "female_percent": 52
+  },
+  "competitors": [
+    {
+      "poi_id": "mock-competitor-1",
+      "name": "시연용 스터디카페 A",
+      "distance_m": 180,
+      "category": "스터디카페",
+      "address": "Mock 주소"
+    },
+    {
+      "poi_id": "mock-competitor-2",
+      "name": "시연용 스터디카페 B",
+      "distance_m": 420,
+      "category": "스터디카페",
+      "address": "Mock 주소"
+    }
+  ]
+}

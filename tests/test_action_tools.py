@@ -47,6 +47,28 @@ def test_send_analysis_report_rejects_invalid_or_unapproved_action(action: objec
     assert result.is_mock is False
 
 
-def test_create_site_visit_event_is_explicitly_not_implemented() -> None:
-    with pytest.raises(NotImplementedError, match="MVP 구현 범위에서 제외"):
-        create_site_visit_event(_action(action_type="create_site_visit"))
+def test_create_site_visit_event_returns_simulated_result() -> None:
+    result = create_site_visit_event(_action(action_type="create_site_visit"))
+
+    assert result.success is True
+    assert result.is_mock is True
+    action_result = ActionResult.model_validate(result.data)
+    assert action_result.action_type == "create_site_visit"
+    assert action_result.status == "simulated"
+    assert "실제 현장답사 일정은 등록되지 않았습니다" in action_result.message
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        object(),
+        _action(),
+        _action(action_type="create_site_visit", status="pending"),
+    ],
+)
+def test_create_site_visit_event_rejects_invalid_or_unapproved_action(action: object) -> None:
+    result = create_site_visit_event(action)
+
+    assert result.success is False
+    assert result.error_code is ErrorCode.INVALID_INPUT
+    assert result.is_mock is False
