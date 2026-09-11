@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 # LangChain Agent 생성 함수
 from langchain.agents import create_agent
 from langchain.agents.middleware import before_model, dynamic_prompt, wrap_tool_call
+from langchain.agents.structured_output import StructuredOutputError, ToolStrategy
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
 from langchain_core.language_models import BaseChatModel
@@ -741,7 +742,14 @@ def build_agent(
         system_prompt=SYSTEM_PROMPT,
         state_schema=StudySpotState,
         context_schema=RuntimeContext,
-        response_format=StudySpotResponse,
+        response_format=ToolStrategy(
+            StudySpotResponse,
+            handle_errors=(
+                "StudySpotResponse 형식이 유효하지 않습니다. 상태별 계약을 지켜 다시 작성하세요: "
+                "success는 추천 1~3개, need_more_information은 누락 필드 1개 이상, "
+                "no_result는 추천 0개여야 합니다. approval_required는 모델이 직접 만들지 않습니다."
+            ),
+        ),
         checkpointer=response_checkpointer,
         store=store or default_store,
     )
@@ -921,11 +929,45 @@ def run_analysis(
             raise ValueError("질문을 입력해 주세요.")
         _invalidate_pending(selected_agent, context, selected_store)
         _prepare_session_state(selected_agent, request, context, selected_store)
-        raw_result = selected_agent.invoke(
-            {"messages": [{"role": "user", "content": user_message}],
-             "structured_response": None},
-            config=build_thread_config(context), context=context,
+        thread_config = build_thread_config(context)
+        prepared_state = selected_agent.get_state(thread_config).values
+        conditions = BusinessConditions.model_validate(
+            prepared_state.get("business_conditions") or {}
         )
+        missing = conditions.missing_required_inputs()
+        if missing:
+            return StudySpotResponse(
+                status="need_more_information",
+                message="분석에 필요한 조건이 부족합니다. 빠진 항목을 입력해 주세요.",
+                missing_required_inputs=missing,
+            )
+
+        try:
+            raw_result = selected_agent.invoke(
+                {"messages": [{"role": "user", "content": user_message}],
+                 "structured_response": None},
+                config=thread_config, context=context,
+            )
+        except StructuredOutputError:
+            # 모델의 최종 JSON 형식만 잘못됐더라도, 앞서 Tool과 점수 계산이 정상적으로
+            # 체크포인트에 저장됐다면 그 검증된 결과를 버리지 않는다. 모델이 만든
+            # 미검증 payload는 사용하지 않고 서버가 State에서 추천을 다시 조립한다.
+            logger.warning("[AGENT] 구조화 최종 응답 검증 실패; 검증된 State 복구를 시도합니다", exc_info=True)
+            recovered_state = selected_agent.get_state(thread_config).values
+            recommendations = _recommendations(recovered_state)
+            if recommendations:
+                return StudySpotResponse(
+                    status="success",
+                    recommendations=recommendations,
+                    message=(
+                        "최종 설명 응답의 형식을 자동 복구했습니다. "
+                        "조회 근거와 계산 Tool에서 검증된 점수만 표시합니다."
+                    ),
+                )
+            return StudySpotResponse(
+                status="no_result",
+                message="Agent 응답 형식을 검증하지 못했습니다. 새 세션에서 다시 요청해 주세요.",
+            )
         response_data = raw_result.get("structured_response")
         if response_data is None:
             messages = raw_result.get("messages", [])

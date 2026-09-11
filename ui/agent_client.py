@@ -17,6 +17,8 @@ TODO(역할 3): 타임아웃·재시도·Guardrail 차단 메시지 규약 확�
 
 from __future__ import annotations
 
+import os
+import importlib
 import uuid
 from typing import Any
 
@@ -30,15 +32,29 @@ from ui.contracts import (
     StudySpotResponse,
 )
 
+FORCE_STUB = os.getenv("STUDYSPOT_FORCE_STUB", "").strip().lower() in {"1", "true", "yes", "on"}
+
+#: 사용할 Agent 모듈. 다른 모듈로 바꾸려면 .env에 STUDYSPOT_AGENT_MODULE을 넣는다.
+#: 어느 모듈을 쓰는지는 사이드바 "Agent 진입점"에 그대로 표시된다.
+AGENT_MODULE = os.getenv("STUDYSPOT_AGENT_MODULE", "agent.main_agent_example").strip()
+
 try:  # pragma: no cover - 역할 5 PR merge 후 이 경로만 남는다
-    from agent.main_agent import run_analysis as _run_analysis  # type: ignore
+    if FORCE_STUB:
+        raise ImportError("stub mode requested")
+    _run_analysis = getattr(
+        importlib.import_module(AGENT_MODULE), "run_analysis"
+    )  # type: ignore[assignment]
 
-    BACKEND = "agent.main_agent"
-except ImportError:
+    BACKEND = AGENT_MODULE
+except (ImportError, AttributeError) as _agent_import_error:
     _run_analysis = None
-    BACKEND = "stub"
+    if FORCE_STUB:
+        BACKEND = "stub (forced)"
+    else:
+        # 모듈 이름 오타·미구현을 stub과 구분해 사이드바에 그대로 보여 준다.
+        BACKEND = f"stub ({AGENT_MODULE} 불러오기 실패: {_agent_import_error})"
 
-AGENT_CONNECTED = BACKEND != "stub"
+AGENT_CONNECTED = _run_analysis is not None
 FAVORITE_MESSAGE_PREFIX = "관심 상권 저장 요청:"
 
 
@@ -137,8 +153,29 @@ def _stub_run_analysis(
     return _stub_partial_success()
 
 
-def _ev(source: str, summary: str, is_mock: bool = True) -> Any:
-    return EvidenceItem(source=source, summary=summary, is_mock=is_mock)
+def _ev(
+    source: str,
+    summary: str,
+    is_mock: bool = True,
+    *,
+    tool_name: str | None = None,
+    metric_name: str | None = None,
+    value: float | None = None,
+    unit: str | None = None,
+) -> Any:
+    """화면 확인용 근거. 실제 Agent가 채우는 모양과 같은 형태로 만든다.
+
+    공통 모델 규칙: value를 넣으면 tool_name·metric_name·unit을 함께 넣어야 한다.
+    """
+    return EvidenceItem(
+        source=source,
+        summary=summary,
+        is_mock=is_mock,
+        tool_name=tool_name,
+        metric_name=metric_name,
+        value=value,
+        unit=unit,
+    )
 
 
 def _stub_success() -> StudySpotResponse:
@@ -153,9 +190,22 @@ def _stub_success() -> StudySpotResponse:
             rent_score=9.0,
             competition_score=7.0,
             total_score=76.0,
-            strengths=["[stub] 장점 표시 자리"],
-            risks=["[stub] 위험요인 표시 자리"],
-            evidence=[_ev("stub", "실제 조회 아님. 화면 확인용 값")],
+            strengths=[
+                "[stub] 반경 500m 안에 입시학원이 42곳으로 후보 중 가장 많음",
+                "[stub] 인근 역 통행량이 평일 18~22시에 몰려 있어 운영 시간과 겹침",
+            ],
+            risks=[
+                "[stub] 같은 상권에 스터디카페 9곳이 이미 있어 경쟁 점수가 낮음",
+                "[stub] 평균 월세가 입력한 예산 상단에 근접함",
+            ],
+            evidence=[
+                _ev("stub:academy", "반경 500m 입시학원 수", tool_name="get_academy_demand",
+                    metric_name="academy_count", value=42, unit="개"),
+                _ev("stub:station", "인근 역 평일 18~22시 출구 통행량", tool_name="get_station_exit_traffic",
+                    metric_name="exit_traffic", value=12480, unit="명"),
+                _ev("stub:competitor", "반경 500m 스터디카페 수", tool_name="search_competitors",
+                    metric_name="competitor_count", value=9, unit="개"),
+            ],
             missing_data=[],
             confidence=0.7,
         ),
@@ -169,9 +219,22 @@ def _stub_success() -> StudySpotResponse:
             rent_score=11.0,
             competition_score=5.0,
             total_score=70.0,
-            strengths=["[stub] 장점 표시 자리"],
-            risks=["[stub] 위험요인 표시 자리"],
-            evidence=[_ev("stub", "실제 조회 아님. 화면 확인용 값")],
+            strengths=[
+                "[stub] 평균 월세가 예산 대비 여유가 있어 임대료 점수가 높음",
+                "[stub] 반경 500m 스터디카페가 4곳으로 경쟁 밀도가 낮은 편",
+            ],
+            risks=[
+                "[stub] 학원 수가 상권 A보다 적어 유입 규모가 작을 수 있음",
+                "[stub] 역과의 거리가 멀어 통행량 점수가 상대적으로 낮음",
+            ],
+            evidence=[
+                _ev("stub:academy", "반경 500m 입시학원 수", tool_name="get_academy_demand",
+                    metric_name="academy_count", value=27, unit="개"),
+                _ev("stub:rent", "상권 평균 월세", tool_name="get_rent_and_closure_data",
+                    metric_name="avg_monthly_rent", value=2_650_000, unit="원"),
+                _ev("stub:competitor", "반경 500m 스터디카페 수", tool_name="search_competitors",
+                    metric_name="competitor_count", value=4, unit="개"),
+            ],
             missing_data=[],
             confidence=0.6,
         ),
@@ -196,11 +259,20 @@ def _stub_partial_success() -> StudySpotResponse:
             rent_score=None,              # 누락 → 총점 기여 0점
             competition_score=6.0,
             total_score=48.0,
-            strengths=["[stub] 장점 표시 자리"],
-            risks=["[stub] 일부 지표 누락으로 비교 한계 있음"],
+            strengths=[
+                "[stub] 반경 500m 입시학원 38곳으로 학원 수요 점수가 25점 중 20점",
+                "[stub] 인근 역 저녁 시간대 통행량이 입력한 운영 시간과 겹침",
+            ],
+            risks=[
+                "[stub] 임대료 조회가 시간 초과(API_TIMEOUT)로 실패해 예산 적합성을 확인하지 못함",
+                "[stub] 타깃 연령 구성 데이터가 없어(NO_DATA) 다른 후보와 직접 비교가 어려움",
+                "[stub] 두 항목이 빠진 채 계산된 총점이라 점수를 그대로 믿기 어려움",
+            ],
             evidence=[
-                _ev("stub:academy", "학원 수요 Mock 값", is_mock=True),
-                _ev("stub:station", "지하철 이용객 Mock 값", is_mock=True),
+                _ev("stub:academy", "반경 500m 입시학원 수", tool_name="get_academy_demand",
+                    metric_name="academy_count", value=38, unit="개"),
+                _ev("stub:station", "인근 역 평일 18~22시 출구 통행량", tool_name="get_station_exit_traffic",
+                    metric_name="exit_traffic", value=9_310, unit="명"),
             ],
             missing_data=["target_customer_score: NO_DATA", "rent_score: API_TIMEOUT"],
             confidence=0.4,

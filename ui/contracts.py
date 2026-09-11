@@ -79,6 +79,12 @@ except ImportError:  # 임시 미러 -------------------------------------------
         source: str
         summary: str
         is_mock: bool = False
+        # 2차 공통 모델에서 추가된 수치 근거 필드.
+        # 값이 있으면 화면에 "값 단위 (지표명)"으로 같이 보여 준다.
+        tool_name: Optional[str] = None
+        metric_name: Optional[str] = None
+        value: Optional[float] = None
+        unit: Optional[str] = None
 
     class MarketScore(BaseModel):
         academy_demand_score: Optional[float] = None   # 최대 25

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import Any, Optional
 
 import streamlit as st
@@ -141,15 +142,44 @@ def _has_mock_evidence(recommendation: Any) -> bool:
     return any(getattr(e, "is_mock", False) for e in getattr(recommendation, "evidence", []))
 
 
+def _evidence_line(item: Any) -> str:
+    """근거 한 건을 '무엇을 근거로 했는지' 드러나게 한 줄로 만든다.
+
+    2차 공통 모델의 tool_name·metric_name·value·unit이 있으면 수치까지 보여 준다.
+    UI는 값을 재계산하거나 단위를 바꾸지 않고 받은 그대로 표시한다.
+    """
+    summary = getattr(item, "summary", "") or "(설명 없음)"
+    source = getattr(item, "source", "?")
+    tool = getattr(item, "tool_name", None)
+    metric = getattr(item, "metric_name", None)
+    value = getattr(item, "value", None)
+    unit = getattr(item, "unit", None)
+
+    meta: list[str] = []
+    if value is not None:
+        # f"{v:,g}"는 백만 단위에서 2.65e+06처럼 지수 표기가 되므로 쓰지 않는다.
+        measured = f"{int(value):,}" if float(value).is_integer() else f"{value:,}"
+        if unit:
+            measured += f" {unit}"
+        if metric:
+            measured += f" ({metric})"
+        meta.append(f"**{measured}**")
+    meta.append(f"출처 `{source}`")
+    if tool:
+        meta.append(f"Tool `{tool}`")
+    if getattr(item, "is_mock", False):
+        meta.append("⚠️ Mock 값")
+    return f"- {summary} — {' · '.join(meta)}"
+
+
 def _score_rows(recommendation: Any) -> list[dict[str, Any]]:
     rows = []
     for field, label, max_score in SCORE_FIELDS:
         value = getattr(recommendation, field, None)
         rows.append(
             {
-                "항목": label,
+                "항목": f"{label} (배점 {max_score})",
                 "점수": MISSING_SCORE_LABEL if value is None else f"{value:g} / {max_score}",
-                "배점": max_score,
             }
         )
     return rows
@@ -178,84 +208,109 @@ def _render_confidence(value: Optional[float]) -> None:
     )
 
 
+def _render_score_metric(recommendation: Any, field: str, label: str, max_score: int) -> None:
+    """Render one Agent-provided score as a labelled progress bar."""
+    value = getattr(recommendation, field, None)
+    if value is None:
+        st.markdown(f'<div class="studyspot-section-label">{label}</div>', unsafe_allow_html=True)
+        st.progress(0.0, text=MISSING_SCORE_LABEL)
+        return
+
+    st.markdown(f'<div class="studyspot-section-label">{label}</div>', unsafe_allow_html=True)
+    st.progress(min(max(float(value) / max_score, 0.0), 1.0), text=f"{value:g} / {max_score}")
+
+
 def _render_recommendation(index: int, recommendation: Any) -> Optional[dict[str, str]]:
     name = getattr(recommendation, "area_name", "(이름 없음)")
     area_id = getattr(recommendation, "commercial_area_id", None)
     total = getattr(recommendation, "total_score", None)
     missing = list(getattr(recommendation, "missing_data", []) or [])
 
-    header = f"{index}. {name}"
-    if total is not None:
-        header += f" — 총점 {total:g} / 100"
-    st.markdown(f"### {header}")
-
-    badges = []
-    if _has_mock_evidence(recommendation):
-        badges.append(":red-badge[Mock 데이터 포함]")
-    if missing:
-        badges.append(f":orange-badge[누락 지표 {len(missing)}건]")
-    if area_id is None:
-        badges.append(":gray-badge[상권 ID 없음]")
-    if badges:
-        st.markdown(" ".join(badges))
-
     favorite_clicked = False
-    if area_id is None:
-        st.button(
-            "☆ 즐겨찾기 저장",
-            key=f"favorite_missing_{index}",
-            disabled=True,
-            help="상권 ID가 없어 저장할 수 없습니다.",
-        )
-    else:
-        requested = ui_state.favorite_requested(area_id)
-        favorite_clicked = st.button(
-            "✓ 즐겨찾기 저장 요청됨" if requested else "☆ 즐겨찾기 저장",
-            key=f"favorite_{area_id}",
-            disabled=requested or ui_state.is_busy(),
-            help="상권 ID를 Agent에 전달해 사용자의 관심 상권으로 저장합니다.",
-        )
-
-    st.dataframe(
-        _score_rows(recommendation),
-        hide_index=True,
-        use_container_width=True,
-        column_config={"배점": st.column_config.NumberColumn("배점", width="small")},
-    )
-    _render_score_consistency_note(recommendation)
-    _render_confidence(getattr(recommendation, "confidence", None))
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**장점**")
-        for item in getattr(recommendation, "strengths", []) or ["(없음)"]:
-            st.markdown(f"- {item}")
-    with col2:
-        st.markdown("**위험요인**")
-        for item in getattr(recommendation, "risks", []) or ["(없음)"]:
-            st.markdown(f"- {item}")
-
-    if missing:
-        with st.expander(f"누락 데이터 {len(missing)}건", expanded=False):
-            for item in missing:
-                st.markdown(f"- {item}")
-            st.caption(
-                "누락 항목은 총점 계산에서 0점으로 처리됩니다. "
-                "실제 관측된 0과 다릅니다."
+    with st.container(border=True):
+        title_col, score_col, action_col = st.columns([4.5, 1.55, 1.65], vertical_alignment="center")
+        with title_col:
+            st.markdown(f'<div class="studyspot-rank">{index}위 추천 상권</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="studyspot-card-title">{escape(str(name))}</div>',
+                unsafe_allow_html=True,
             )
+        with score_col:
+            score_text = "—" if total is None else f"{total:g}"
+            confidence = getattr(recommendation, "confidence", None)
+            confidence_text = "미제공" if confidence is None else f"{confidence:g}"
+            st.markdown(
+                f'<div class="studyspot-score">{score_text} <small>/ 100<br>신뢰도 {confidence_text}</small></div>',
+                unsafe_allow_html=True,
+            )
+        with action_col:
+            if area_id is None:
+                st.button(
+                    "☆ 즐겨찾기",
+                    key=f"favorite_missing_{index}",
+                    disabled=True,
+                    use_container_width=True,
+                    help="상권 ID가 없어 저장할 수 없습니다.",
+                )
+            else:
+                requested = ui_state.favorite_requested(area_id)
+                favorite_clicked = st.button(
+                    "✓ 저장 요청됨" if requested else "☆ 즐겨찾기",
+                    key=f"favorite_{area_id}",
+                    disabled=requested or ui_state.is_busy(),
+                    use_container_width=True,
+                    help="상권 ID를 Agent에 전달해 사용자의 관심 상권으로 저장합니다.",
+                )
 
-    evidence = list(getattr(recommendation, "evidence", []) or [])
-    with st.expander(f"근거 · 출처 {len(evidence)}건", expanded=False):
-        if not evidence:
-            st.caption("제공된 근거가 없습니다.")
-        for item in evidence:
-            mark = " :red-badge[Mock]" if getattr(item, "is_mock", False) else ""
-            st.markdown(f"- `{getattr(item, 'source', '?')}`{mark} — {getattr(item, 'summary', '')}")
-        # CONTRACT-GAP: docs/06은 'Tool 호출 과정' 표시를 요구하지만 StudySpotResponse에는
-        # tool_results가 없다(State는 UI로 전달되지 않음). 현재는 evidence로 대체하고,
-        # 호출 추적이 필요하면 역할 4·5에게 계약 확장을 요청한다.
+        badges = []
+        if _has_mock_evidence(recommendation):
+            badges.append("🔴 Mock 데이터 포함")
+        if missing:
+            badges.append(f"🟠 누락 지표 {len(missing)}건")
+        if area_id is None:
+            badges.append("⚪ 상권 ID 없음")
+        if badges:
+            st.caption("  ·  ".join(badges))
 
-    st.divider()
+        score_columns = st.columns(2)
+        for score_index, (field, label, max_score) in enumerate(SCORE_FIELDS):
+            with score_columns[score_index % 2]:
+                _render_score_metric(recommendation, field, label, max_score)
+        _render_score_consistency_note(recommendation)
+
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**장점**")
+            strengths = list(getattr(recommendation, "strengths", []) or [])
+            for item in strengths:
+                st.markdown(f"- {item}")
+            if not strengths:
+                st.caption("Agent가 제시한 장점이 없습니다.")
+        with col2:
+            st.markdown("**위험요인**")
+            risks = list(getattr(recommendation, "risks", []) or [])
+            for item in risks:
+                st.markdown(f"- {item}")
+            if not risks:
+                st.caption("Agent가 제시한 위험요인이 없습니다.")
+
+        if missing:
+            with st.expander(f"누락 데이터 {len(missing)}건", expanded=False):
+                for item in missing:
+                    st.markdown(f"- {item}")
+                st.caption("누락 항목은 총점에 0점으로 반영되며 실제 관측된 0과 다릅니다.")
+
+        evidence = list(getattr(recommendation, "evidence", []) or [])
+        with st.expander(f"근거와 출처 보기 · {len(evidence)}건", expanded=False):
+            if not evidence:
+                st.caption("제공된 근거가 없습니다.")
+            for item in evidence:
+                st.markdown(_evidence_line(item))
+            st.caption(
+                "장점·위험요인은 Agent 응답을 그대로 표시합니다. "
+                "판단에 쓰인 수치는 위 근거에서 확인할 수 있습니다."
+            )
 
     if favorite_clicked and area_id is not None:
         return {"commercial_area_id": area_id, "area_name": name}
@@ -310,6 +365,10 @@ def render_success(response: Any) -> Optional[tuple[str, dict[str, str]]]:
         selected = _render_recommendation(index, recommendation)
         if selected is not None:
             favorite = selected
+    st.caption(
+        "점수는 창업 성공 확률이 아니라 입력 조건에 대한 상권 적합도입니다. "
+        "신뢰도는 실데이터로 계산된 비중을 뜻합니다."
+    )
     if favorite is not None:
         return "favorite", favorite
     return None
