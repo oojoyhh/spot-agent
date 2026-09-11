@@ -1,0 +1,49 @@
+{
+  "description": "docs/scoring.md 4절 손 계산 결과. 입력은 scoring_example_input.json, 기준값은 scoring_reference.json",
+  "policy_version": "scoring-v1-draft",
+  "example_a": {
+    "academy_demand_score": 17.5,
+    "target_customer_score": 20.0,
+    "station_traffic_score": 4.5,
+    "activity_score": 7.5,
+    "rent_score": 7.5,
+    "competition_score": 7.0,
+    "total_score": 64.0,
+    "confidence": 0.93,
+    "missing_data": [],
+    "is_mock": true
+  },
+  "example_b": {
+    "academy_demand_score": 17.5,
+    "target_customer_score": 20.0,
+    "station_traffic_score": 4.5,
+    "activity_score": 7.5,
+    "rent_score": 7.5,
+    "competition_score": null,
+    "total_score": 57.0,
+    "confidence": 0.83,
+    "missing_data": [
+      "competition_score: search_competitors 조회 실패 (API_TIMEOUT)"
+    ],
+    "is_mock": true
+  },
+  "example_c": {
+    "academy_demand_score": null,
+    "target_customer_score": null,
+    "station_traffic_score": null,
+    "activity_score": null,
+    "rent_score": null,
+    "competition_score": null,
+    "total_score": 0.0,
+    "confidence": 0.0,
+    "missing_data": [
+      "academy_demand_score: get_academy_demand 결과 없음",
+      "target_customer_score: get_visitor_demographics 결과 없음",
+      "station_traffic_score: get_station_exit_traffic 결과 없음",
+      "activity_score: get_district_congestion 결과 없음",
+      "rent_score: get_rent_and_closure_data 결과 없음",
+      "competition_score: search_competitors 결과 없음"
+    ],
+    "is_mock": false
+  }
+}
