@@ -15,7 +15,8 @@ from middleware.middleware import (
     execute_with_retry,
     sensitive_action_execution_guard,
 )
-from models.schemas import BusinessConditions, ErrorCode, PendingAction, RuntimeContext, ToolResult
+from models.schemas import ActionResult, BusinessConditions, ErrorCode, PendingAction, RuntimeContext, ToolResult
+from tools.action_tools import send_analysis_report
 
 
 @dataclass
@@ -163,6 +164,22 @@ def test_tool_result_timeout_retries_exactly_three_times():
     assert calls == 3
 
 
+@pytest.mark.parametrize(
+    "error_code",
+    [ErrorCode.API_TIMEOUT, ErrorCode.API_RATE_LIMIT, ErrorCode.API_RESPONSE_ERROR],
+)
+def test_retryable_tool_result_error_codes_retry_exactly_three_times(error_code):
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(error_code)
+
+    assert execute_with_retry(operation).error_code is error_code
+    assert calls == 3
+
+
 def test_tool_result_auth_error_does_not_retry():
     calls = 0
 
@@ -172,6 +189,31 @@ def test_tool_result_auth_error_does_not_retry():
         return tool_failure(ErrorCode.API_AUTH_ERROR)
 
     assert execute_with_retry(operation).error_code is ErrorCode.API_AUTH_ERROR
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        ErrorCode.API_AUTH_ERROR,
+        ErrorCode.API_BAD_REQUEST,
+        ErrorCode.INVALID_INPUT,
+        ErrorCode.AREA_NOT_FOUND,
+        ErrorCode.NO_DATA,
+        ErrorCode.STATION_NOT_FOUND,
+        ErrorCode.MISSING_REQUIRED_INPUT,
+        ErrorCode.TOOL_INTERNAL_ERROR,
+    ],
+)
+def test_non_retryable_tool_result_error_codes_run_once(error_code):
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(error_code)
+
+    assert execute_with_retry(operation).error_code is error_code
     assert calls == 1
 
 
@@ -194,6 +236,65 @@ def test_tool_result_no_data_or_area_errors_do_not_retry_or_fallback(error_code)
 
     assert execute_with_retry(operation, mock_provider=mock).error_code is error_code
     assert (calls, mock_calls) == (1, 0)
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        ErrorCode.NO_DATA,
+        ErrorCode.AREA_NOT_FOUND,
+        ErrorCode.STATION_NOT_FOUND,
+        ErrorCode.MISSING_REQUIRED_INPUT,
+        ErrorCode.INVALID_INPUT,
+    ],
+)
+def test_non_retryable_tool_results_skip_cache_and_mock_fallback(error_code):
+    calls = cache_calls = mock_calls = 0
+    original = tool_failure(error_code)
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return original
+
+    def cache():
+        nonlocal cache_calls
+        cache_calls += 1
+        return ToolResult(success=True, source="cache:test", data={}, is_mock=False)
+
+    def mock():
+        nonlocal mock_calls
+        mock_calls += 1
+        return ToolResult(success=True, source="mock:test", data={}, is_mock=True)
+
+    assert execute_with_retry(operation, cache_provider=cache, mock_provider=mock) is original
+    assert (calls, cache_calls, mock_calls) == (1, 0, 0)
+
+
+@pytest.mark.parametrize("cache_hit", [True, False], ids=["cache_hit", "cache_miss"])
+def test_retryable_tool_result_uses_cache_then_mock_after_retry_exhaustion(cache_hit):
+    calls = cache_calls = mock_calls = 0
+    cached = ToolResult(success=True, source="cache:test", data={}, is_mock=False)
+    mocked = ToolResult(success=True, source="mock:test", data={}, is_mock=True)
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(ErrorCode.API_TIMEOUT)
+
+    def cache():
+        nonlocal cache_calls
+        cache_calls += 1
+        return cached if cache_hit else None
+
+    def mock():
+        nonlocal mock_calls
+        mock_calls += 1
+        return mocked
+
+    result = execute_with_retry(operation, cache_provider=cache, mock_provider=mock)
+    assert result is (cached if cache_hit else mocked)
+    assert (calls, cache_calls, mock_calls) == (3, 1, 0 if cache_hit else 1)
 
 
 def test_tool_result_success_returns_immediately():
@@ -248,10 +349,10 @@ def test_hitl_action_tools_allow_only_approve_or_reject():
     from middleware.middleware import build_human_in_the_loop_middleware
 
     middleware = build_human_in_the_loop_middleware()
-    for tool_name in ("send_analysis_report", "create_site_visit_event"):
-        allowed_decisions = middleware.interrupt_on[tool_name]["allowed_decisions"]
-        assert allowed_decisions == ["approve", "reject"]
-        assert "edit" not in allowed_decisions
+    allowed_decisions = middleware.interrupt_on["send_analysis_report"]["allowed_decisions"]
+    assert allowed_decisions == ["approve", "reject"]
+    assert "edit" not in allowed_decisions
+    assert "create_site_visit_event" not in middleware.interrupt_on
 
 
 def test_sensitive_action_execution_allows_matching_approved_action():
@@ -270,10 +371,10 @@ def test_sensitive_action_execution_blocks_non_approved_action(status):
 
 
 def test_sensitive_action_execution_blocks_action_type_mismatch():
-    action = pending_action().transition_to("approved")
+    action = pending_action(action_type="create_site_visit").transition_to("approved")
 
     with pytest.raises(SensitiveActionExecutionDenied):
-        ensure_sensitive_action_approved("create_site_visit_event", action, runtime_context())
+        ensure_sensitive_action_approved("send_analysis_report", action, runtime_context())
 
 
 def test_sensitive_action_execution_blocks_user_mismatch():
@@ -408,3 +509,72 @@ def test_condition_change_invalidates_approved_action_before_sensitive_tool_exec
     with pytest.raises(SensitiveActionExecutionDenied):
         sensitive_action_execution_guard.wrap_tool_call(request, handler)
     assert calls == 1
+
+
+def test_sensitive_action_guard_executes_actual_mock_report_tool_for_approved_action():
+    action = pending_action().transition_to("approved")
+    state = {"pending_action": action}
+    calls = 0
+    request = ToolCallRequest(
+        tool_call={"name": "send_analysis_report", "args": {}, "id": "call-action", "type": "tool_call"},
+        tool=None,
+        state=state,
+        runtime=ToolRuntime(
+            state=state,
+            context=runtime_context(),
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id="call-action",
+            store=None,
+        ),
+    )
+
+    def handler(guarded_request):
+        nonlocal calls
+        calls += 1
+        return send_analysis_report(guarded_request.state["pending_action"])
+
+    result = sensitive_action_execution_guard.wrap_tool_call(request, handler)
+    action_result = ActionResult.model_validate(result.data)
+    assert calls == 1
+    assert result.success and result.is_mock
+    assert action_result.status == "simulated"
+    assert action_result.is_mock
+    assert "실제 보고서는 전송되지 않았습니다" in action_result.message
+
+
+@pytest.mark.parametrize(
+    ("action", "context"),
+    [
+        (pending_action(), runtime_context()),
+        (pending_action().transition_to("rejected"), runtime_context()),
+        (pending_action().transition_to("approved"), runtime_context(user_id="other-user")),
+        (pending_action().transition_to("approved"), runtime_context(session_id="other-session")),
+    ],
+    ids=["pending", "rejected", "user_mismatch", "session_mismatch"],
+)
+def test_sensitive_action_guard_blocks_actual_report_tool_without_approved_matching_action(action, context):
+    state = {"pending_action": action}
+    calls = 0
+    request = ToolCallRequest(
+        tool_call={"name": "send_analysis_report", "args": {}, "id": "call-blocked", "type": "tool_call"},
+        tool=None,
+        state=state,
+        runtime=ToolRuntime(
+            state=state,
+            context=context,
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id="call-blocked",
+            store=None,
+        ),
+    )
+
+    def handler(guarded_request):
+        nonlocal calls
+        calls += 1
+        return send_analysis_report(guarded_request.state["pending_action"])
+
+    with pytest.raises(SensitiveActionExecutionDenied):
+        sensitive_action_execution_guard.wrap_tool_call(request, handler)
+    assert calls == 0

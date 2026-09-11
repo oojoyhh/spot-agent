@@ -31,10 +31,13 @@ from models.schemas import ErrorCode, PendingAction, RuntimeContext
 T = TypeVar("T")
 MAX_TOOL_ATTEMPTS = 3
 RETRYABLE_ERROR_CODES = frozenset({"API_TIMEOUT", "API_RATE_LIMIT", "API_RESPONSE_ERROR"})
-NON_RETRYABLE_ERROR_CODES = frozenset({"API_AUTH_ERROR", "API_BAD_REQUEST", "INVALID_INPUT", "UNSUPPORTED_AREA", "AREA_NOT_FOUND", "NO_DATA"})
+NON_RETRYABLE_ERROR_CODES = frozenset({
+    "API_AUTH_ERROR", "API_BAD_REQUEST", "INVALID_INPUT", "UNSUPPORTED_AREA",
+    "AREA_NOT_FOUND", "STATION_NOT_FOUND", "NO_DATA", "MISSING_REQUIRED_INPUT",
+    "TOOL_INTERNAL_ERROR",
+})
 SENSITIVE_ACTION_TOOL_TYPES = {
     "send_analysis_report": "send_report",
-    "create_site_visit_event": "create_site_visit",
 }
 
 
@@ -136,7 +139,6 @@ def build_human_in_the_loop_middleware() -> HumanInTheLoopMiddleware:
     """checkpointer 기반의 승인 전에는 action Tool을 실행하지 않게 구성한다."""
     return HumanInTheLoopMiddleware({
         "send_analysis_report": {"allowed_decisions": ["approve", "reject"]},
-        "create_site_visit_event": {"allowed_decisions": ["approve", "reject"]},
     })
 
 

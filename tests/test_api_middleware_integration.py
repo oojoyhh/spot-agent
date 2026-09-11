@@ -153,3 +153,76 @@ def test_middleware_does_not_retry_successful_local_api_tool() -> None:
     assert result.success is True
     assert result.is_mock is False
     assert calls == 1
+
+
+@pytest.mark.parametrize(
+    ("operation", "error_code"),
+    [
+        (lambda: subway_tools.find_nearby_stations(0.0, 0.0, 500), ErrorCode.STATION_NOT_FOUND),
+        (
+            lambda: academy_tools.get_academy_demand(
+                AreaIdentity(
+                    commercial_area_id="9307",
+                    administrative_code=None,
+                    area_name="역삼역남부 3번출구",
+                    latitude=37.500692,
+                    longitude=127.036978,
+                ),
+                _period(),
+            ),
+            ErrorCode.MISSING_REQUIRED_INPUT,
+        ),
+    ],
+    ids=["subway_station_not_found", "academy_missing_required_input"],
+)
+def test_actual_local_tool_non_retryable_results_skip_retry_and_fallback(
+    operation: Callable[[], ToolResult],
+    error_code: ErrorCode,
+) -> None:
+    """실제 Tool의 영구 오류는 Middleware를 거쳐도 재시도·대체 결과로 바뀌지 않는다."""
+    calls = cache_calls = mock_calls = 0
+
+    def counted_operation() -> ToolResult:
+        nonlocal calls
+        calls += 1
+        return operation()
+
+    def cache() -> ToolResult:
+        nonlocal cache_calls
+        cache_calls += 1
+        return ToolResult(success=True, source="cache:test", data={}, is_mock=False)
+
+    def mock() -> ToolResult:
+        nonlocal mock_calls
+        mock_calls += 1
+        return ToolResult(success=True, source="mock:test", data={}, is_mock=True)
+
+    result = execute_with_retry(counted_operation, cache_provider=cache, mock_provider=mock)
+    assert result.success is False
+    assert result.error_code is error_code
+    assert (calls, cache_calls, mock_calls) == (1, 0, 0)
+
+
+def test_actual_market_area_not_found_skips_retry_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """외부 요청 없이 실제 market Tool의 AREA_NOT_FOUND 결과를 Middleware에 연결한다."""
+    monkeypatch.setattr(market_tools, "_fetch_areas", lambda: [{"areaId": "9195", "areaName": "명동"}])
+    calls = cache_calls = mock_calls = 0
+
+    def operation() -> ToolResult:
+        nonlocal calls
+        calls += 1
+        return market_tools.search_supported_districts("없는상권")
+
+    def cache() -> ToolResult:
+        nonlocal cache_calls
+        cache_calls += 1
+        return ToolResult(success=True, source="cache:test", data=[], is_mock=False)
+
+    def mock() -> ToolResult:
+        nonlocal mock_calls
+        mock_calls += 1
+        return ToolResult(success=True, source="mock:test", data=[], is_mock=True)
+
+    result = execute_with_retry(operation, cache_provider=cache, mock_provider=mock)
+    assert result.error_code is ErrorCode.AREA_NOT_FOUND
+    assert (calls, cache_calls, mock_calls) == (1, 0, 0)

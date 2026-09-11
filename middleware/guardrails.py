@@ -13,6 +13,10 @@ Agent 실행 전에 종료한다. ``build_pii_middlewares``는 email/phone을
 framework와 독립적으로 검사한다. ``output_secret_guardrail``은
 ``after_model`` hook에서 위반 응답을 고정 안전 문구로 교체한다.
 
+``inspect_tool_result_for_no_data``는 retry/fallback 없이 개별 ToolResult가
+분석 근거로 사용 가능한지 판정한다. data absence와 실행 오류를 구분하며,
+일부 ``missing_data`` 또는 정상 0건 성공 결과를 실패로 바꾸지 않는다.
+
 Prompt Injection은 기존 지시 체계를 변경하려는 요청이고, Secret
 Disclosure는 System Prompt/API Key 같은 내부정보 공개 요청이다. Detailed
 Address는 MVP 입력 정책에 따라 coarse location으로 정제할 수 있을 때만
@@ -27,13 +31,19 @@ from dataclasses import dataclass
 import re
 from typing import Any, Iterable
 
-from langchain.agents.middleware import PIIMiddleware, after_model, before_agent
+from langchain.agents.middleware import AgentMiddleware, PIIMiddleware, after_model, before_agent
 from langchain.messages import AIMessage
+from models.schemas import ErrorCode, ToolResult
 
 PROMPT_INJECTION = "PROMPT_INJECTION"
 SECRET_DISCLOSURE = "SECRET_DISCLOSURE"
 DETAILED_ADDRESS = "DETAILED_ADDRESS"
 SAFE_OUTPUT_MESSAGE = "응답에 보호해야 할 내부 정보가 포함되어 있어 해당 내용을 제공할 수 없습니다."
+_NO_DATA_EVIDENCE_CODES = frozenset({
+    ErrorCode.NO_DATA,
+    ErrorCode.AREA_NOT_FOUND,
+    ErrorCode.STATION_NOT_FOUND,
+})
 
 
 @dataclass(frozen=True)
@@ -129,6 +139,15 @@ def inspect_model_output(value: str) -> GuardrailDecision:
     return GuardrailDecision(True, sanitized_value=value)
 
 
+def inspect_tool_result_for_no_data(tool_result: ToolResult) -> GuardrailDecision:
+    """ToolResult가 정상 분석 evidence로 사용 가능한지 data absence와 실행 오류를 구분해 판정한다."""
+    if tool_result.success:
+        return GuardrailDecision(True)
+    if tool_result.error_code in _NO_DATA_EVIDENCE_CODES:
+        return GuardrailDecision(False, tool_result.error_code.value)
+    return GuardrailDecision(False, tool_result.error_code.value if tool_result.error_code else None)
+
+
 def _last_message_text(messages: Iterable[Any]) -> str:
     for message in reversed(list(messages)):
         content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
@@ -200,18 +219,49 @@ PHONE_NUMBER_PATTERN = r"(?<!\d)(?:\+?82[-\s]?)?0?1[0-9][\s-]?\d{3,4}[\s-]?\d{4}
 
 
 # 안전 판정 뒤 모델 입출력과 저장 경계에서 PII를 분리해 보호한다.
-def build_pii_middlewares() -> list[PIIMiddleware]:
-    """LangChain 내장 email detector와 한국 전화번호 custom detector를 사용한다."""
+def _build_pii_rules() -> list[PIIMiddleware]:
     return [
         PIIMiddleware("email", strategy="redact", apply_to_input=True, apply_to_output=True),
         PIIMiddleware("phone_number", detector=PHONE_NUMBER_PATTERN, strategy="redact", apply_to_input=True, apply_to_output=True),
     ]
 
 
+class _SequentialPIIMiddleware(AgentMiddleware):
+    """여러 PII 규칙의 message 교체를 하나의 lifecycle update로 합친다.
+
+    LangGraph의 ``messages`` reducer는 같은 message id의 마지막 update만 반영한다.
+    email/phone 규칙을 순차 적용해 두 종류의 PII가 모두 다음 Model 단계에서 제거되게 한다.
+    """
+
+    def __init__(self, middlewares: list[PIIMiddleware]) -> None:
+        self.middlewares = middlewares
+
+    def before_model(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+        return self._apply("before_model", state, runtime)
+
+    def after_model(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+        return self._apply("after_model", state, runtime)
+
+    def _apply(self, hook_name: str, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+        current_state = state
+        changed = False
+        for middleware in self.middlewares:
+            update = getattr(middleware, hook_name)(current_state, runtime)
+            if update is not None:
+                current_state = {**current_state, **update}
+                changed = True
+        return {"messages": current_state["messages"]} if changed else None
+
+
+def build_pii_middlewares() -> list[AgentMiddleware]:
+    """LangChain 내장 email detector와 한국 전화번호 detector를 순차 적용한다."""
+    return [_SequentialPIIMiddleware(_build_pii_rules())]
+
+
 def mask_pii_for_storage(value: str) -> str:
     """저장/로그 경계용 마스킹 helper. 원문을 출력하지 않는다."""
     masked = value
-    for middleware in build_pii_middlewares():
+    for middleware in _build_pii_rules():
         # TODO: LangChain private API 의존. Store 통합 시 public integration 경로 또는 안정된 sanitizer로 교체 검토.
         masked_value, _ = middleware._process_content(masked)
         if not isinstance(masked_value, str):
