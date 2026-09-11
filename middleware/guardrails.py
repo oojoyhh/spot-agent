@@ -27,6 +27,7 @@ Agent/Tool에 전달하고, 그렇지 않으면 실행 전에 차단한다. 정�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 import re
@@ -34,12 +35,13 @@ from typing import Any, Iterable
 
 from langchain.agents.middleware import AgentMiddleware, PIIMiddleware, after_model, before_agent, wrap_tool_call
 from langchain.messages import AIMessage, ToolMessage
-from models.schemas import ErrorCode, ToolResult
+from models.schemas import AreaIdentity, ErrorCode, MarketScore, StudySpotResponse, ToolResult
 
 PROMPT_INJECTION = "PROMPT_INJECTION"
 SECRET_DISCLOSURE = "SECRET_DISCLOSURE"
 DETAILED_ADDRESS = "DETAILED_ADDRESS"
 UNTRUSTED_TOOL_OUTPUT = "UNTRUSTED_TOOL_OUTPUT"
+UNSUPPORTED_DATA = "UNSUPPORTED_DATA"
 SAFE_OUTPUT_MESSAGE = "응답에 보호해야 할 내부 정보가 포함되어 있어 해당 내용을 제공할 수 없습니다."
 SAFE_TOOL_TEXT_PLACEHOLDER = "[UNTRUSTED_TOOL_TEXT_REMOVED]"
 _NO_DATA_EVIDENCE_CODES = frozenset({
@@ -47,6 +49,17 @@ _NO_DATA_EVIDENCE_CODES = frozenset({
     ErrorCode.AREA_NOT_FOUND,
     ErrorCode.STATION_NOT_FOUND,
 })
+_VERIFIED_SCORE_FIELDS = (
+    "academy_demand_score",
+    "target_customer_score",
+    "station_traffic_score",
+    "activity_score",
+    "rent_score",
+    "competition_score",
+    "total_score",
+    "confidence",
+    "missing_data",
+)
 
 
 @dataclass(frozen=True)
@@ -248,6 +261,68 @@ def inspect_tool_result_for_no_data(tool_result: ToolResult) -> GuardrailDecisio
     if tool_result.error_code in _NO_DATA_EVIDENCE_CODES:
         return GuardrailDecision(False, tool_result.error_code.value)
     return GuardrailDecision(False, tool_result.error_code.value if tool_result.error_code else None)
+
+
+def _contains_numeric_evidence(data: Any, *, metric_name: str, value: float, unit: str) -> bool:
+    """중첩된 Tool payload에서 EvidenceItem의 수치 계약을 찾는다."""
+    if isinstance(data, Mapping):
+        if (
+            data.get("metric_name") == metric_name
+            and data.get("value") == value
+            and data.get("unit") == unit
+        ):
+            return True
+        return any(
+            _contains_numeric_evidence(item, metric_name=metric_name, value=value, unit=unit)
+            for item in data.values()
+        )
+    if isinstance(data, list):
+        return any(
+            _contains_numeric_evidence(item, metric_name=metric_name, value=value, unit=unit)
+            for item in data
+        )
+    return False
+
+
+def inspect_response_evidence(
+    response: StudySpotResponse,
+    *,
+    market_scores: Mapping[str, MarketScore],
+    tool_results: Mapping[str, ToolResult],
+    areas: Mapping[str, AreaIdentity],
+) -> GuardrailDecision:
+    """최종 추천의 정량 근거가 검증된 상권·점수·Tool 결과와 일치하는지 판정한다.
+
+    이 core는 응답을 변경하거나 실패 상태로 변환하지 않는다. 식별자, 점수,
+    source/is_mock, 수치 evidence만 대조하고 strengths·risks·summary 같은 자연어
+    설명은 Agent의 표현 영역으로 남긴다.
+    """
+    for recommendation in response.recommendations:
+        area_id = recommendation.commercial_area_id
+        score = market_scores.get(area_id)
+        area = areas.get(area_id)
+        if score is None or area is None or area.area_name != recommendation.area_name:
+            return GuardrailDecision(False, UNSUPPORTED_DATA)
+        if any(getattr(recommendation, field) != getattr(score, field) for field in _VERIFIED_SCORE_FIELDS):
+            return GuardrailDecision(False, UNSUPPORTED_DATA)
+
+        for evidence in recommendation.evidence:
+            # Numeric evidence requires tool_name by the public schema; therefore its provenance is checkable.
+            if evidence.tool_name is None:
+                continue
+            tool_result = tool_results.get(evidence.tool_name)
+            if tool_result is None:
+                return GuardrailDecision(False, UNSUPPORTED_DATA)
+            if evidence.source != tool_result.source or evidence.is_mock != tool_result.is_mock:
+                return GuardrailDecision(False, UNSUPPORTED_DATA)
+            if evidence.value is not None and not _contains_numeric_evidence(
+                tool_result.data,
+                metric_name=evidence.metric_name or "",
+                value=evidence.value,
+                unit=evidence.unit or "",
+            ):
+                return GuardrailDecision(False, UNSUPPORTED_DATA)
+    return GuardrailDecision(True)
 
 
 def _last_message_text(messages: Iterable[Any]) -> str:
