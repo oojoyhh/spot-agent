@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from langchain.messages import ToolMessage
+from langchain.messages import AIMessage, HumanMessage, ToolMessage
 
 from agent import main_agent as agent
 from models.schemas import ToolResult
@@ -71,3 +71,46 @@ def test_agent_registers_guard_outside_retry(monkeypatch):
     assert agent._MOCK_TOOL_NAMES == {name for name, _ in CASES}
     assert agent._MOCK_TOOL_NAMES <= names
     assert agent._agent_mock_provider(SimpleNamespace(tool_call={'name': 'resolve_area_entities'})) is None
+    assert middleware.index(agent.collect_analysis_results) < middleware.index(agent.enforce_max_agent_iterations)
+
+
+def _tool_history_state(error_code='NO_DATA'):
+    call_id = 'call-no-data'
+    return {
+        'messages': [
+            HumanMessage(content='분석해줘'),
+            AIMessage(content='', tool_calls=[{
+                'id': call_id, 'name': 'get_academy_demand', 'args': {},
+            }]),
+            ToolMessage(content='', tool_call_id=call_id, name='get_academy_demand'),
+        ],
+        'tool_results': {
+            call_id: ToolResult(
+                success=False, is_mock=False, source='test-api', data={},
+                error_code=error_code, error_message='원본 오류',
+            ),
+        },
+    }
+
+
+def test_tool_call_mapping_and_no_data_reason_are_saved_for_final_response():
+    state = _tool_history_state()
+
+    assert agent.tool_call_name_mapping(state) == {'call-no-data': 'get_academy_demand'}
+    assert agent._unavailable_data_reasons(state) == ['get_academy_demand (call-no-data): NO_DATA']
+
+
+def test_execution_error_is_not_mislabeled_as_missing_data():
+    assert agent._unavailable_data_reasons(_tool_history_state('API_TIMEOUT')) == []
+
+
+def test_max_iteration_uses_messages_since_last_human_message_and_resets():
+    old_turn = [HumanMessage(content='이전 요청')] + [AIMessage(content='') for _ in range(10)]
+    state = {'messages': old_turn + [HumanMessage(content='새 요청')]}
+    assert agent._current_iteration(state) == 0
+
+    state['messages'].extend(AIMessage(content='') for _ in range(agent._MAX_AGENT_ITERATIONS))
+    outcome = agent.enforce_max_agent_iterations.before_model(state, None)
+    assert outcome['jump_to'] == 'end'
+    assert outcome['missing_data'] == ['MAX_ITERATION_REACHED']
+    assert outcome['structured_response']['status'] == 'no_result'
