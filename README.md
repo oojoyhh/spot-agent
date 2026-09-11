@@ -9,7 +9,7 @@
 
 | 경로 | 내용 | 담당 · 브랜치 |
 |---|---|---|
-| `app.py` | Streamlit UI | 6 명하 · `feature/streamlit` |
+| `app.py` | Streamlit UI | 6 명하 · `feature/ui` |
 | `agent/main_agent.py`, `agent/prompts.py` | Agent 생성·연결, System Prompt | 5 석휘 · `feature/agent-core` |
 | `tools/academy_tools.py`, `tools/subway_tools.py` | SK 학원·지하철 API Tool | 1 중우 · `feature/api-tools` |
 | `tools/scoring_tools.py`, `models/schemas.py` | 점수 계산, 공통 모델 | 4 효주 · `feature/scoring` |
