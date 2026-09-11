@@ -5,6 +5,7 @@ from langchain.messages import ToolMessage
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain.tools import ToolRuntime
 
+from memory.state import create_initial_state, merge_business_conditions
 from middleware.middleware import (
     MaxIterationReached,
     SensitiveActionExecutionDenied,
@@ -14,7 +15,7 @@ from middleware.middleware import (
     execute_with_retry,
     sensitive_action_execution_guard,
 )
-from models.schemas import ErrorCode, PendingAction, RuntimeContext, ToolResult
+from models.schemas import BusinessConditions, ErrorCode, PendingAction, RuntimeContext, ToolResult
 
 
 @dataclass
@@ -345,3 +346,65 @@ def test_max_iteration_policy_blocks_calls_at_or_above_limit(current_iteration):
 def test_max_iteration_policy_rejects_invalid_counts(current_iteration, max_iterations):
     with pytest.raises(ValueError):
         can_continue_agent_iteration(current_iteration, max_iterations)
+
+
+# Memory가 조건 변경으로 승인 대기를 무효화하면, middleware가 stale action의 실제 실행을 막아야 한다.
+@pytest.mark.parametrize(
+    ("condition_update", "expected_update_key", "preserves_analysis"),
+    [
+        (BusinessConditions(monthly_rent_budget=3_000_000), "tool_results", False),
+        (BusinessConditions(preferred_region="마포구"), "searched_areas", False),
+        (BusinessConditions(priority_metrics=["rent_score"]), "pending_action", True),
+    ],
+    ids=["monthly_rent", "preferred_region", "priority_metrics"],
+)
+def test_condition_change_invalidates_approved_action_before_sensitive_tool_execution(
+    condition_update,
+    expected_update_key,
+    preserves_analysis,
+):
+    state = create_initial_state(
+        BusinessConditions(
+            preferred_region="강남구",
+            deposit_budget=50_000_000,
+            monthly_rent_budget=2_500_000,
+            target_age="20대",
+            operating_start_time="09:00",
+            operating_end_time="23:00",
+            priority_metrics=["academy_demand_score"],
+        )
+    )
+    state["pending_action"] = pending_action().transition_to("approved")
+    calls = 0
+    request = ToolCallRequest(
+        tool_call={"name": "send_analysis_report", "args": {}, "id": "call-1", "type": "tool_call"},
+        tool=None,
+        state=state,
+        runtime=ToolRuntime(
+            state=state,
+            context=runtime_context(),
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id="call-1",
+            store=None,
+        ),
+    )
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return "executed"
+
+    assert sensitive_action_execution_guard.wrap_tool_call(request, handler) == "executed"
+    assert calls == 1
+
+    state_update = merge_business_conditions(state, condition_update)
+    assert state_update["pending_action"] is None
+    assert expected_update_key in state_update
+    if preserves_analysis:
+        assert "tool_results" not in state_update
+
+    state.update(state_update)
+    with pytest.raises(SensitiveActionExecutionDenied):
+        sensitive_action_execution_guard.wrap_tool_call(request, handler)
+    assert calls == 1
