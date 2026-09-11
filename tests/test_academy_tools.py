@@ -40,14 +40,14 @@ def _period() -> AnalysisPeriod:
     )
 
 
-def _payload(stat: list[dict] | None = None) -> dict:
+def _payload(stat: list[dict] | None = None, *, school_age_label: str = "고등학생") -> dict:
     return {
         "status": {"code": "00", "message": "success", "totalCount": 1},
         "contents": {
             "districtCode": "1168010100",
             "districtName": "서울특별시 강남구 역삼동",
             "category": "전체",
-            "schoolAge": "고등학생",
+            "schoolAge": school_age_label,
             "stat": stat
             if stat is not None
             else [
@@ -55,7 +55,7 @@ def _payload(stat: list[dict] | None = None) -> dict:
                     "ypId": "473863",
                     "ypName": "강남대성학원",
                     "category": "입시/고시",
-                    "schoolAge": "고등학생",
+                    "schoolAge": school_age_label,
                     "lat": 37.495853,
                     "lng": 127.03096,
                     "count": 1404,
@@ -77,7 +77,7 @@ def test_get_academy_demand_returns_common_payload(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(academy_tools, "_request", fake_request)
 
-    result = academy_tools.get_academy_demand(_area(), "고등학생", _period())
+    result = academy_tools.get_academy_demand(_area(), _period(), "high")
 
     assert result.success is True
     assert captured == {"district_code": "1168010100", "school_age": "high"}
@@ -90,7 +90,7 @@ def test_get_academy_demand_returns_common_payload(monkeypatch: pytest.MonkeyPat
 def test_empty_ranking_is_missing_not_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(academy_tools, "_request", lambda *args: _payload([]))
 
-    result = academy_tools.get_academy_demand(_area(), "high", _period())
+    result = academy_tools.get_academy_demand(_area(), _period(), "high")
 
     data = AcademyDemandData.model_validate(result.data)
     assert result.success is True
@@ -107,7 +107,7 @@ def test_missing_district_code_stops_before_request(monkeypatch: pytest.MonkeyPa
         return {}
 
     monkeypatch.setattr(academy_tools, "_request", fake_request)
-    result = academy_tools.get_academy_demand(_area(None), "고등학생", _period())
+    result = academy_tools.get_academy_demand(_area(None), _period())
 
     assert calls == 0
     assert result.error_code == ErrorCode.MISSING_REQUIRED_INPUT
@@ -122,16 +122,32 @@ def test_invalid_district_code_stops_before_request(monkeypatch: pytest.MonkeyPa
         return {}
 
     monkeypatch.setattr(academy_tools, "_request", fake_request)
-    result = academy_tools.get_academy_demand(_area("11680"), "고등학생", _period())
+    result = academy_tools.get_academy_demand(_area("11680"), _period())
 
     assert calls == 0
     assert result.error_code == ErrorCode.INVALID_INPUT
 
 
-def test_age_decade_is_not_guessed_as_school_age() -> None:
-    result = academy_tools.get_academy_demand(_area(), "10대", _period())
+@pytest.mark.parametrize("unsupported", ["10대", "고등학생"])
+def test_user_age_or_label_is_not_guessed_as_school_age(unsupported: str) -> None:
+    result = academy_tools.get_academy_demand(_area(), _period(), unsupported)  # type: ignore[arg-type]
 
     assert result.error_code == ErrorCode.INVALID_INPUT
+
+
+def test_school_age_defaults_to_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    def fake_request(district_code: str, school_age: str) -> dict:
+        captured.update(district_code=district_code, school_age=school_age)
+        return _payload(school_age_label="전체")
+
+    monkeypatch.setattr(academy_tools, "_request", fake_request)
+
+    result = academy_tools.get_academy_demand(_area(), _period())
+
+    assert result.success
+    assert captured["school_age"] == "all"
 
 
 def test_request_calls_external_api_once_without_key_in_url() -> None:
@@ -192,6 +208,34 @@ def test_response_district_code_must_match(monkeypatch: pytest.MonkeyPatch) -> N
     payload["contents"]["districtCode"] = "1111010100"
     monkeypatch.setattr(academy_tools, "_request", lambda *args: payload)
 
-    result = academy_tools.get_academy_demand(_area(), "high", _period())
+    result = academy_tools.get_academy_demand(_area(), _period(), "high")
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
+
+
+def test_response_school_age_must_match_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(academy_tools, "_request", lambda *args: _payload(school_age_label="전체"))
+
+    result = academy_tools.get_academy_demand(_area(), _period(), "high")
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
+
+
+@pytest.mark.parametrize("invalid_count", [True, float("nan"), float("inf"), -1])
+def test_invalid_count_is_response_error(monkeypatch: pytest.MonkeyPatch, invalid_count: object) -> None:
+    payload = _payload()
+    payload["contents"]["stat"][0]["count"] = invalid_count
+    monkeypatch.setattr(academy_tools, "_request", lambda *args: payload)
+
+    result = academy_tools.get_academy_demand(_area(), _period(), "high")
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
+
+
+def test_duplicate_academy_id_is_response_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    item = _payload()["contents"]["stat"][0]
+    monkeypatch.setattr(academy_tools, "_request", lambda *args: _payload([item, item.copy()]))
+
+    result = academy_tools.get_academy_demand(_area(), _period(), "high")
 
     assert result.error_code == ErrorCode.API_RESPONSE_ERROR

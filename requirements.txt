@@ -5,4 +5,5 @@ langgraph==1.2.11
 pydantic==2.13.5
 streamlit==1.63.0
 python-dotenv==1.2.3
+holidays==0.104
 pytest==9.1.1

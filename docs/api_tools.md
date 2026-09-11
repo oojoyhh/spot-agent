@@ -51,9 +51,26 @@ success, source, data, error_code, error_message, is_mock
 `search_competitors`는 원천 POI 목록을 반환한다. 경쟁점포 수는
 `len(data["competitors"])`이며 API Tool에서 별도의 점수나 가중치를 만들지 않는다.
 
+## 외부 응답 검증 원칙
+
+- HTTP 200과 JSON 파싱 성공만으로 정상 처리하지 않는다.
+- 요청한 상권·법정동·역 코드와 응답 식별자가 다르면 `API_RESPONSE_ERROR`다.
+- 학원 분류·학령과 지하철 성별·연령 조건이 요청값과 일치해야 한다.
+- 일 단위·시간 단위 API의 관측 날짜와 정시 여부를 확인한다.
+- 수치의 타입, 유한값 여부, 음수 가능 여부와 비율·단계 범위를 확인한다.
+- 형식이 잘못된 비대상 연령 행도 조용히 버리지 않고 응답 오류로 처리한다.
+- 값이 다른 중복 관측은 응답 오류로 처리한다. 동일 지하철·혼잡도 관측은 한 건만 유지하고, TMAP의 동일 POI ID는 가장 가까운 한 건만 유지한다.
+
+### 휴일 판정
+
+- `day_type`은 `holiday > weekend > weekday` 순서로 하나만 부여한다.
+- 대한민국 공휴일과 대체공휴일은 `holidays` 패키지의 `KR`, `observed=True` 기준으로 판정한다.
+- 공휴일이 토·일요일과 겹쳐도 `holiday`이며, 일반 토·일요일만 `weekend`다.
+- 새로 지정된 임시공휴일이 설치된 패키지 버전에 없으면 의존성 버전을 갱신해야 한다.
+
 ## 3. 학원 수요
 
-### `get_academy_demand(area, target_age, period)`
+### `get_academy_demand(area, period, school_age="all")`
 
 - 공식 문서: [학령·분류별 지역 학원 순위](https://openapi.sk.com/products/detail?linkMenuSeq=449)
 - Endpoint: `GET https://apis.openapi.sk.com/puzzle/academy/ranking/districts/{districtCode}`
@@ -65,17 +82,20 @@ success, source, data, error_code, error_message, is_mock
 
 허용 학령:
 
-| Tool 입력 | API 값 |
+| `school_age` 입력 | API 값 |
 |---|---|
-| 영유아 / `preschool` | `preschool` |
-| 초등학생 / `elementary` | `elementary` |
-| 중학생 / `middle` | `middle` |
-| 고등학생 / `high` | `high` |
-| 대학생 / `univ` | `univ` |
-| 전체 / `all` | `all` |
+| `preschool` | `preschool` |
+| `elementary` | `elementary` |
+| `middle` | `middle` |
+| `high` | `high` |
+| `univ` | `univ` |
+| `all` (기본값) | `all` |
 
-`10대`를 중학생 또는 고등학생으로 추측하지 않는다. `stat=[]`은 학원 0개로
-해석하지 않고 `missing_data`에 순위 데이터 없음으로 기록한다.
+`BusinessConditions.target_age`의 `10대`, `20대` 등은 방문자 연령대이며 이 Tool에
+전달하지 않는다. 사용자 연령대를 중학생·고등학생 등으로 추측하지 않고, 특정 학령
+요구가 없으면 `all`을 사용한다. `stat=[]`은 학원 0개로 해석하지 않고
+`missing_data`에 순위 데이터 없음으로 기록한다. 응답의 `dimensions.school_age`에는
+API가 반환한 한글 표시값을 그대로 보존한다.
 
 정상 `data`는 `AcademyDemandData` 직렬화 사전이다.
 
@@ -117,25 +137,29 @@ SK 공식 전체 역 목록에는 좌표가 없으므로 역 코드와 서울시
 - 공식 문서: [데이터 제공 가능 상권](https://openapi.sk.com/products/detail?linkMenuSeq=419)
 - Endpoint: `GET https://apis.openapi.sk.com/puzzle/place/meta/areas`
 - Query: `offset=0`, `limit=1000`
-- 공백을 제거한 상권명에 `preferred_region`이 포함된 결과를 반환한다.
+- 공백을 제거한 상권명 또는 검증된 지역 별칭에 `preferred_region`이 포함된 결과를 반환한다.
+- 지역 별칭은 `data/reference/commercial_areas.json`에 등록된 상권에만 사용한다.
 
 ### `resolve_area_entities(selected_candidate_id)`
 
 상권 목록에서 ID를 정확히 일치시킨다. 현재 API가 `areaId`, `areaName`만 제공하므로
-다음처럼 확인되지 않은 값은 `None`으로 둔다.
+`data/reference/commercial_areas.json`에서 ID와 이름이 모두 일치하는 검증 항목만
+행정동 코드와 좌표를 보완한다.
 
 ```json
 {
   "commercial_area_id": "9307",
-  "administrative_code": null,
+  "administrative_code": "1168010100",
   "area_name": "역삼역남부 3번출구",
-  "latitude": null,
-  "longitude": null
+  "latitude": 37.50012959,
+  "longitude": 127.03529551
 }
 ```
 
-법정동 코드가 필요한 학원 Tool과 좌표가 필요한 경쟁점포 Tool은 해당 값이 없으면
-`MISSING_REQUIRED_INPUT`을 반환한다.
+좌표는 TMAP 장소 통합 검색에서 이름이 정확히 일치한 **지하철 출구 기준점**이며
+상권 중심점이 아니다. 현재 검증 범위는 역삼역 인접 상권 4개다. 기준 데이터에 없거나
+상권명이 바뀐 항목은 값을 추측하지 않고 `None`으로 두며, 법정동 코드가 필요한 학원
+Tool과 좌표가 필요한 경쟁점포 Tool은 `MISSING_REQUIRED_INPUT`을 반환한다.
 
 ## 6. 상권 혼잡도
 
@@ -168,7 +192,8 @@ area, observations, missing_data
 - 관측 기간은 `statStartDate`~`statEndDate`를 사용한다.
 
 허용 연령은 `10세 미만`, `10대`~`90대`, `100세 이상`이며 API 코드로는
-`0`, `10`~`90`, `100_over`를 사용한다.
+`0`, `10`~`90`, `100_over`를 사용한다. Tool 입력은 앞의 한글 사용자 표현만
+허용하며 API 코드는 어댑터 내부에서만 사용한다.
 
 정상 `data` 구조:
 

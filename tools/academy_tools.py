@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -21,25 +23,21 @@ from models.schemas import (
     MetricObservation,
     ToolResult,
 )
+from tools.api_types import SchoolAge
 
 __all__ = ["get_academy_demand"]
 
 _SOURCE = "SK Open API - 학령·분류별 지역 학원 순위"
 _ENDPOINT = "https://apis.openapi.sk.com/puzzle/academy/ranking/districts"
 _DISTRICT_CODE_PATTERN = re.compile(r"^[0-9]{10}$")
-_SCHOOL_AGES = {
-    "영유아": "preschool",
-    "preschool": "preschool",
-    "초등학생": "elementary",
-    "elementary": "elementary",
-    "중학생": "middle",
-    "middle": "middle",
-    "고등학생": "high",
-    "high": "high",
-    "대학생": "univ",
-    "univ": "univ",
-    "전체": "all",
-    "all": "all",
+_SCHOOL_AGES = frozenset({"preschool", "elementary", "middle", "high", "univ", "all"})
+_SCHOOL_AGE_LABELS: dict[SchoolAge, str] = {
+    "preschool": "영유아",
+    "elementary": "초등학생",
+    "middle": "중학생",
+    "high": "고등학생",
+    "univ": "대학생",
+    "all": "전체",
 }
 
 
@@ -68,18 +66,24 @@ def _api_key() -> str:
     return key
 
 
-def _school_age(target_age: str) -> str:
-    if not isinstance(target_age, str) or target_age.strip() not in _SCHOOL_AGES:
+def _school_age(school_age: str) -> SchoolAge:
+    if not isinstance(school_age, str):
         raise AcademyApiError(
-            "학원 target_age는 영유아·초등학생·중학생·고등학생·대학생·전체 중 하나여야 합니다.",
+            "school_age는 preschool·elementary·middle·high·univ·all 중 하나여야 합니다.",
             ErrorCode.INVALID_INPUT,
         )
-    return _SCHOOL_AGES[target_age.strip()]
+    normalized = school_age.strip()
+    if normalized not in _SCHOOL_AGES:
+        raise AcademyApiError(
+            "school_age는 preschool·elementary·middle·high·univ·all 중 하나여야 합니다.",
+            ErrorCode.INVALID_INPUT,
+        )
+    return cast(SchoolAge, normalized)
 
 
 def _request(
     district_code: str,
-    school_age: str,
+    school_age: SchoolAge,
     *,
     timeout: float = 10.0,
     api_key: str | None = None,
@@ -118,7 +122,12 @@ def _request(
     return payload
 
 
-def _parse(payload: dict[str, Any], area: AreaIdentity, requested_period: AnalysisPeriod) -> AcademyDemandData:
+def _parse(
+    payload: dict[str, Any],
+    area: AreaIdentity,
+    requested_period: AnalysisPeriod,
+    expected_school_age: SchoolAge,
+) -> AcademyDemandData:
     status = payload.get("status")
     if not isinstance(status, dict) or status.get("code") != "00":
         code = ErrorCode.NO_DATA if isinstance(status, dict) and status.get("code") == "NO_DATA" else ErrorCode.API_RESPONSE_ERROR
@@ -127,6 +136,9 @@ def _parse(payload: dict[str, Any], area: AreaIdentity, requested_period: Analys
     contents = payload.get("contents")
     if not isinstance(contents, dict) or contents.get("districtCode") != area.administrative_code:
         raise AcademyApiError("응답의 법정동 코드가 요청과 다릅니다.", ErrorCode.API_RESPONSE_ERROR)
+    expected_label = _SCHOOL_AGE_LABELS[expected_school_age]
+    if contents.get("category") != "전체" or contents.get("schoolAge") != expected_label:
+        raise AcademyApiError("응답의 분류 또는 학령이 요청과 다릅니다.", ErrorCode.API_RESPONSE_ERROR)
     stat = contents.get("stat")
     if not isinstance(stat, list):
         raise AcademyApiError("응답의 stat 값이 배열이 아닙니다.", ErrorCode.API_RESPONSE_ERROR)
@@ -143,22 +155,34 @@ def _parse(payload: dict[str, Any], area: AreaIdentity, requested_period: Analys
     except (KeyError, TypeError, ValueError) as exc:
         raise AcademyApiError("응답의 통계 기간이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
 
-    observations = []
+    observations: list[MetricObservation] = []
+    academy_ids: set[str] = set()
     for index, item in enumerate(stat):
         try:
             if not isinstance(item, dict):
                 raise TypeError
             count = item["count"]
-            if isinstance(count, bool) or not isinstance(count, (int, float)) or count < 0:
+            if (
+                isinstance(count, bool)
+                or not isinstance(count, (int, float))
+                or not math.isfinite(count)
+                or count < 0
+            ):
+                raise ValueError
+            for field in ("ypId", "ypName", "category", "schoolAge"):
+                if not isinstance(item.get(field), str) or not item[field].strip():
+                    raise ValueError
+            if item["schoolAge"] != expected_label:
                 raise ValueError
             dimensions = {
-                "academy_id": str(item["ypId"]).strip(),
-                "academy_name": str(item["ypName"]).strip(),
-                "category": str(item["category"]).strip(),
-                "school_age": str(item["schoolAge"]).strip(),
+                "academy_id": item["ypId"].strip(),
+                "academy_name": item["ypName"].strip(),
+                "category": item["category"].strip(),
+                "school_age": item["schoolAge"].strip(),
             }
-            if not all(dimensions.values()):
+            if dimensions["academy_id"] in academy_ids:
                 raise ValueError
+            academy_ids.add(dimensions["academy_id"])
         except (KeyError, TypeError, ValueError) as exc:
             raise AcademyApiError(
                 f"stat[{index}]의 필드 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR
@@ -186,10 +210,14 @@ def _parse(payload: dict[str, Any], area: AreaIdentity, requested_period: Analys
 
 def get_academy_demand(
     area: AreaIdentity,
-    target_age: str,
     period: AnalysisPeriod,
+    school_age: SchoolAge = "all",
 ) -> ToolResult:
-    """법정동의 학령별 상위 학원 추정 통화 고객수를 조회한다."""
+    """법정동의 학령별 상위 학원 추정 통화 고객수를 조회한다.
+
+    사용자 타깃 연령대는 학령으로 추정 변환하지 않는다. 특정 학령 요청이 없으면
+    API의 전체 학령 코드인 ``all``을 사용한다.
+    """
     try:
         if not isinstance(area, AreaIdentity) or not isinstance(period, AnalysisPeriod):
             raise AcademyApiError("area와 period의 형식이 올바르지 않습니다.", ErrorCode.INVALID_INPUT)
@@ -198,8 +226,9 @@ def get_academy_demand(
         if not _DISTRICT_CODE_PATTERN.fullmatch(area.administrative_code):
             raise AcademyApiError("법정동 코드는 10자리 숫자여야 합니다.", ErrorCode.INVALID_INPUT)
 
-        payload = _request(area.administrative_code, _school_age(target_age))
-        data = _parse(payload, area, period)
+        normalized_school_age = _school_age(school_age)
+        payload = _request(area.administrative_code, normalized_school_age)
+        data = _parse(payload, area, period, normalized_school_age)
         return ToolResult(
             success=True,
             source=_SOURCE,

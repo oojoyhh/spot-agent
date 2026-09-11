@@ -28,6 +28,7 @@ from models.schemas import (
     StationTrafficData,
     ToolResult,
 )
+from tools.calendar_utils import classify_day
 
 __all__ = ["find_nearby_stations", "get_station_exit_traffic"]
 
@@ -156,10 +157,6 @@ def _required_string(container: dict[str, Any], field: str) -> str:
     return value
 
 
-def _day_type(observed_at: datetime) -> str:
-    return "weekend" if observed_at.weekday() >= 5 else "weekday"
-
-
 def _is_in_requested_time(observed_at: datetime, period: AnalysisPeriod) -> bool:
     if period.start_time is None:
         return True
@@ -173,8 +170,8 @@ def _parse_station_exit_traffic(
     payload: dict[str, Any],
     expected_station_id: str,
     period: AnalysisPeriod | None = None,
-) -> dict[str, Any]:
-    """원천 응답을 ``StationTrafficData`` 입력 형식으로 정규화한다."""
+) -> StationTrafficData:
+    """원천 응답을 검증된 ``StationTrafficData``로 정규화한다."""
     station_id = _validate_station_id(expected_station_id)
     status = payload.get("status")
     if not isinstance(status, dict):
@@ -195,7 +192,7 @@ def _parse_station_exit_traffic(
     if not isinstance(raw, list):
         raise SubwayResponseError("응답의 raw 값이 배열이 아닙니다.", ErrorCode.API_RESPONSE_ERROR)
 
-    observations: list[dict[str, Any]] = []
+    observations: list[MetricObservation] = []
     seen: dict[tuple[str, str], int] = {}
     for index, item in enumerate(raw):
         try:
@@ -205,6 +202,10 @@ def _parse_station_exit_traffic(
             user_count = item["userCount"]
             observed_at = datetime.strptime(item["datetime"], "%Y%m%d%H%M%S")
             if isinstance(user_count, bool) or not isinstance(user_count, int) or user_count < 0:
+                raise ValueError
+            if observed_at.minute != 0 or observed_at.second != 0:
+                raise ValueError
+            if period is not None and observed_at.date() != period.start_date:
                 raise ValueError
         except (KeyError, TypeError, ValueError) as exc:
             raise SubwayResponseError(
@@ -220,7 +221,7 @@ def _parse_station_exit_traffic(
             continue
         seen[unique_key] = user_count
 
-        day_type = _day_type(observed_at)
+        day_type = classify_day(observed_at)
         if period is not None and (
             day_type not in period.day_types or not _is_in_requested_time(observed_at, period)
         ):
@@ -248,13 +249,13 @@ def _parse_station_exit_traffic(
                 "time_slot": f"{observed_at:%H:%M}-{end_at:%H:%M}",
             },
         )
-        observations.append(observation.model_dump(mode="json"))
+        observations.append(observation)
 
-    return {
-        "station_id": station_id,
-        "observations": observations,
-        "missing_data": [] if observations else ["조건에 맞는 출구 통행량 데이터가 없습니다."],
-    }
+    return StationTrafficData(
+        station_id=station_id,
+        observations=observations,
+        missing_data=[] if observations else ["조건에 맞는 출구 통행량 데이터가 없습니다."],
+    )
 
 
 def _failure(error_code: ErrorCode, message: str, source: str = _SOURCE) -> ToolResult:
@@ -310,12 +311,14 @@ def _distance_m(latitude: float, longitude: float, station: NearbyStation) -> fl
 
 def find_nearby_stations(latitude: float, longitude: float, radius_m: int) -> ToolResult:
     """로컬 기준 좌표에서 반경 내 SK 역 코드를 거리순으로 반환한다."""
-    valid_numbers = all(
+    valid_coordinates = all(
         isinstance(value, (int, float)) and not isinstance(value, bool)
-        for value in (latitude, longitude, radius_m)
+        for value in (latitude, longitude)
     )
     if (
-        not valid_numbers
+        not valid_coordinates
+        or isinstance(radius_m, bool)
+        or not isinstance(radius_m, int)
         or not all(math.isfinite(value) for value in (latitude, longitude, radius_m))
         or not (-90 <= latitude <= 90)
         or not (-180 <= longitude <= 180)
@@ -324,7 +327,7 @@ def find_nearby_stations(latitude: float, longitude: float, radius_m: int) -> To
         return _failure(ErrorCode.INVALID_INPUT, "좌표 또는 반경이 올바르지 않습니다.", _STATION_SOURCE)
 
     try:
-        nearby = []
+        nearby: list[NearbyStation] = []
         for station in _load_station_reference():
             distance = _distance_m(float(latitude), float(longitude), station)
             if distance <= radius_m:
@@ -365,8 +368,7 @@ def get_station_exit_traffic(station_id: str, period: AnalysisPeriod) -> ToolRes
 
         station_id = _validate_station_id(station_id)
         payload = _fetch_station_exit_traffic(station_id, period.start_date.strftime("%Y%m%d"))
-        parsed = _parse_station_exit_traffic(payload, station_id, period)
-        data = StationTrafficData.model_validate(parsed)
+        data = _parse_station_exit_traffic(payload, station_id, period)
         return ToolResult(
             success=True,
             source=_SOURCE,

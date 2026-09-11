@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import math
 import os
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -15,7 +17,9 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
-from models.schemas import AnalysisPeriod, AreaIdentity, ErrorCode, MetricObservation, ToolResult
+from models.schemas import AnalysisPeriod, AreaIdentity, DayType, ErrorCode, MetricObservation, ToolResult
+from tools.api_types import VisitorTargetAge
+from tools.calendar_utils import classify_day
 
 __all__ = [
     "search_supported_districts",
@@ -26,7 +30,7 @@ __all__ = [
     "get_rent_and_closure_data",
 ]
 
-_AREAS_SOURCE = "SK Open API - 데이터 제공 가능 상권"
+_AREAS_SOURCE = "SK Open API - 데이터 제공 가능 상권; TMAP - 검증된 출구 위치"
 _CONGESTION_SOURCE = "SK Open API - 시간대별 상권 혼잡도"
 _VISITOR_SOURCE = "SK Open API - 상권 방문자 연령 분포"
 _COMPETITOR_SOURCE = "TMAP - 장소 통합 검색"
@@ -34,15 +38,27 @@ _AREAS_ENDPOINT = "https://apis.openapi.sk.com/puzzle/place/meta/areas"
 _CONGESTION_ENDPOINT = "https://apis.openapi.sk.com/puzzle/place/congestion/stat/raw/hourly/areas"
 _VISITOR_ENDPOINT = "https://apis.openapi.sk.com/puzzle/place/visit/seg/stat/daily/areas"
 _POI_ENDPOINT = "https://apis.openapi.sk.com/tmap/pois"
+_AREA_REFERENCE_PATH = Path(__file__).resolve().parents[1] / "data" / "reference" / "commercial_areas.json"
 _RENT_MOCK_PATH = Path(__file__).resolve().parents[1] / "data" / "mock" / "rent_and_closure.json"
-_AGE_GROUPS = {
+_AGE_GROUPS: dict[VisitorTargetAge, str] = {
     "10세 미만": "0",
-    "0": "0",
-    **{f"{age}대": str(age) for age in range(10, 100, 10)},
-    **{str(age): str(age) for age in range(10, 100, 10)},
+    "10대": "10",
+    "20대": "20",
+    "30대": "30",
+    "40대": "40",
+    "50대": "50",
+    "60대": "60",
+    "70대": "70",
+    "80대": "80",
+    "90대": "90",
     "100세 이상": "100_over",
-    "100_over": "100_over",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class AreaReference:
+    area: AreaIdentity
+    aliases: tuple[str, ...]
 
 
 class MarketApiError(Exception):
@@ -51,7 +67,13 @@ class MarketApiError(Exception):
         self.error_code = error_code
 
 
-def _failure(source: str, code: ErrorCode, message: str, *, data: dict | list | None = None) -> ToolResult:
+def _failure(
+    source: str,
+    code: ErrorCode,
+    message: str,
+    *,
+    data: dict[str, Any] | list[Any] | None = None,
+) -> ToolResult:
     return ToolResult(
         success=False,
         source=source,
@@ -128,13 +150,9 @@ def _area(area: AreaIdentity) -> AreaIdentity:
     return area
 
 
-def _day_type(moment: datetime, period: AnalysisPeriod) -> str | None:
-    natural = "weekend" if moment.weekday() >= 5 else "weekday"
-    if natural in period.day_types:
-        return natural
-    if natural == "weekday" and "holiday" in period.day_types:
-        return "holiday"
-    return None
+def _day_type(moment: datetime, period: AnalysisPeriod) -> DayType | None:
+    classified = classify_day(moment)
+    return classified if classified in period.day_types else None
 
 
 def _in_time(moment: datetime, period: AnalysisPeriod) -> bool:
@@ -146,7 +164,7 @@ def _in_time(moment: datetime, period: AnalysisPeriod) -> bool:
     return current >= period.start_time or current < period.end_time
 
 
-def _observation_period(moment: datetime, day_type: str) -> tuple[AnalysisPeriod, str]:
+def _observation_period(moment: datetime, day_type: DayType) -> tuple[AnalysisPeriod, str]:
     end = moment + timedelta(hours=1)
     time_slot = f"{moment:%H:%M}-{end:%H:%M}"
     return (
@@ -167,12 +185,51 @@ def _fetch_areas() -> list[dict[str, Any]]:
     contents = payload.get("contents")
     if not isinstance(status, dict) or status.get("code") != "00" or not isinstance(contents, list):
         raise MarketApiError("상권 목록 응답 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
+    area_ids: set[str] = set()
+    for index, item in enumerate(contents):
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("areaId"), str)
+            or not item["areaId"].strip()
+            or not isinstance(item.get("areaName"), str)
+            or not item["areaName"].strip()
+            or item["areaId"] in area_ids
+        ):
+            raise MarketApiError(f"상권 목록의 contents[{index}] 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
+        area_ids.add(item["areaId"])
     return contents
 
 
-def _area_identity(item: dict[str, Any]) -> AreaIdentity:
+def _load_area_references() -> dict[str, AreaReference]:
     try:
-        return AreaIdentity(
+        payload = json.loads(_AREA_REFERENCE_PATH.read_text(encoding="utf-8"))
+        items = payload["areas"]
+        if not isinstance(items, list):
+            raise TypeError
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise MarketApiError("상권 기준 데이터를 읽을 수 없습니다.", ErrorCode.TOOL_INTERNAL_ERROR) from exc
+
+    references: dict[str, AreaReference] = {}
+    try:
+        for item in items:
+            area = AreaIdentity.model_validate(item["area"])
+            aliases = item.get("aliases", [])
+            if not isinstance(aliases, list) or not all(isinstance(alias, str) and alias.strip() for alias in aliases):
+                raise ValueError
+            if area.commercial_area_id in references:
+                raise ValueError
+            references[area.commercial_area_id] = AreaReference(
+                area=area,
+                aliases=tuple(cast(list[str], aliases)),
+            )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MarketApiError("상권 기준 데이터 형식이 올바르지 않습니다.", ErrorCode.TOOL_INTERNAL_ERROR) from exc
+    return references
+
+
+def _area_identity(item: dict[str, Any], references: dict[str, AreaReference]) -> AreaIdentity:
+    try:
+        area = AreaIdentity(
             commercial_area_id=item["areaId"],
             administrative_code=None,
             area_name=item["areaName"],
@@ -182,18 +239,28 @@ def _area_identity(item: dict[str, Any]) -> AreaIdentity:
     except (KeyError, TypeError, ValueError) as exc:
         raise MarketApiError("상권 목록 항목의 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
 
+    reference = references.get(area.commercial_area_id)
+    if reference is not None and reference.area.area_name == area.area_name:
+        return reference.area
+    return area
+
 
 def search_supported_districts(preferred_region: str) -> ToolResult:
-    """상권명에 희망 지역 문자열이 포함된 지원 상권을 반환한다."""
+    """상권명 또는 검증된 지역 별칭에 희망 지역 문자열이 포함된 지원 상권을 반환한다."""
     try:
         if not isinstance(preferred_region, str) or not preferred_region.strip():
             raise MarketApiError("preferred_region이 비어 있습니다.", ErrorCode.INVALID_INPUT)
         keyword = "".join(preferred_region.split()).casefold()
-        areas = [
-            _area_identity(item)
-            for item in _fetch_areas()
-            if isinstance(item, dict) and keyword in "".join(str(item.get("areaName", "")).split()).casefold()
-        ]
+        references = _load_area_references()
+        areas: list[AreaIdentity] = []
+        for item in _fetch_areas():
+            if not isinstance(item, dict):
+                continue
+            area = _area_identity(item, references)
+            reference = references.get(area.commercial_area_id)
+            searchable = [area.area_name, *(reference.aliases if reference is not None else ())]
+            if any(keyword in "".join(value.split()).casefold() for value in searchable):
+                areas.append(area)
         if not areas:
             return _failure(_AREAS_SOURCE, ErrorCode.AREA_NOT_FOUND, "지원 상권을 찾지 못했습니다.", data=[])
         return ToolResult(
@@ -211,18 +278,19 @@ def search_supported_districts(preferred_region: str) -> ToolResult:
 
 
 def resolve_area_entities(selected_candidate_id: str) -> ToolResult:
-    """상권 ID를 확인된 ID·이름으로 해석하고 미확인 코드·좌표는 None으로 둔다."""
+    """상권 ID를 해석하고 검증된 기준 데이터가 있을 때만 코드·출구 좌표를 보완한다."""
     try:
         if not isinstance(selected_candidate_id, str) or not selected_candidate_id.strip():
             raise MarketApiError("selected_candidate_id가 비어 있습니다.", ErrorCode.INVALID_INPUT)
         candidate_id = selected_candidate_id.strip()
+        references = _load_area_references()
         match = next(
             (item for item in _fetch_areas() if isinstance(item, dict) and item.get("areaId") == candidate_id),
             None,
         )
         if match is None:
             return _failure(_AREAS_SOURCE, ErrorCode.AREA_NOT_FOUND, "지원 상권 ID를 찾지 못했습니다.")
-        data = _area_identity(match)
+        data = _area_identity(match, references)
         return ToolResult(
             success=True,
             source=_AREAS_SOURCE,
@@ -251,16 +319,38 @@ def get_district_congestion(area: AreaIdentity, period: AnalysisPeriod) -> ToolR
         if contents.get("areaId") != area.commercial_area_id or not isinstance(contents.get("raw"), list):
             raise MarketApiError("혼잡도 응답의 상권 ID 또는 raw가 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
 
-        observations = []
+        observations: list[dict[str, Any]] = []
+        seen: dict[str, tuple[float, int]] = {}
         for index, item in enumerate(contents["raw"]):
             try:
+                if not isinstance(item, dict):
+                    raise TypeError
                 moment = datetime.strptime(item["datetime"], "%Y%m%d%H%M%S")
-                congestion = float(item["congestion"])
-                level = int(item["congestionLevel"])
-                if congestion < 0 or not 1 <= level <= 10:
+                congestion_value = item["congestion"]
+                level = item["congestionLevel"]
+                if (
+                    isinstance(congestion_value, bool)
+                    or not isinstance(congestion_value, (int, float))
+                    or not math.isfinite(congestion_value)
+                    or congestion_value < 0
+                    or isinstance(level, bool)
+                    or not isinstance(level, int)
+                    or not 1 <= level <= 10
+                    or moment.minute != 0
+                    or moment.second != 0
+                    or moment.date() != period.start_date
+                ):
                     raise ValueError
+                congestion = float(congestion_value)
             except (KeyError, TypeError, ValueError) as exc:
                 raise MarketApiError(f"raw[{index}]의 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
+            raw_key = item["datetime"]
+            raw_value = (congestion, level)
+            if raw_key in seen:
+                if seen[raw_key] != raw_value:
+                    raise MarketApiError(f"raw[{index}]에 값이 다른 중복 관측이 있습니다.", ErrorCode.API_RESPONSE_ERROR)
+                continue
+            seen[raw_key] = raw_value
             day_type = _day_type(moment, period)
             if day_type is None or not _in_time(moment, period):
                 continue
@@ -293,7 +383,11 @@ def get_district_congestion(area: AreaIdentity, period: AnalysisPeriod) -> ToolR
         return _failure(_CONGESTION_SOURCE, ErrorCode.TOOL_INTERNAL_ERROR, "상권 혼잡도 처리 중 오류가 발생했습니다.")
 
 
-def get_visitor_demographics(area: AreaIdentity, target_age: str, period: AnalysisPeriod) -> ToolResult:
+def get_visitor_demographics(
+    area: AreaIdentity,
+    target_age: VisitorTargetAge,
+    period: AnalysisPeriod,
+) -> ToolResult:
     """상권 방문자 중 지정 연령대가 차지하는 성별 비율을 조회한다."""
     try:
         area = _area(area)
@@ -301,7 +395,8 @@ def get_visitor_demographics(area: AreaIdentity, target_age: str, period: Analys
             raise MarketApiError("period 형식이 올바르지 않습니다.", ErrorCode.INVALID_INPUT)
         if not isinstance(target_age, str) or target_age.strip() not in _AGE_GROUPS:
             raise MarketApiError("방문자 target_age는 10대·20대와 같은 연령대여야 합니다.", ErrorCode.INVALID_INPUT)
-        age_group = _AGE_GROUPS[target_age.strip()]
+        normalized_target_age = cast(VisitorTargetAge, target_age.strip())
+        age_group = _AGE_GROUPS[normalized_target_age]
         contents = _sk_contents(_request_json(f"{_VISITOR_ENDPOINT}/{area.commercial_area_id}"))
         if contents.get("areaId") != area.commercial_area_id or not isinstance(contents.get("stat"), list):
             raise MarketApiError("방문자 응답의 상권 ID 또는 stat이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
@@ -315,17 +410,32 @@ def get_visitor_demographics(area: AreaIdentity, target_age: str, period: Analys
         except (KeyError, TypeError, ValueError) as exc:
             raise MarketApiError("방문자 응답의 통계 기간이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
 
-        observations = []
+        observations: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        valid_age_groups = set(_AGE_GROUPS.values())
         for index, item in enumerate(contents["stat"]):
-            if not isinstance(item, dict) or item.get("ageGrp") != age_group:
-                continue
             try:
+                if not isinstance(item, dict):
+                    raise TypeError
                 gender = item["gender"]
-                rate = float(item["rate"])
-                if gender not in {"male", "female"} or rate < 0:
+                item_age_group = item["ageGrp"]
+                rate_value = item["rate"]
+                if (
+                    gender not in {"male", "female"}
+                    or item_age_group not in valid_age_groups
+                    or isinstance(rate_value, bool)
+                    or not isinstance(rate_value, (int, float))
+                    or not math.isfinite(rate_value)
+                    or not 0 <= rate_value <= 100
+                    or (gender, item_age_group) in seen
+                ):
                     raise ValueError
+                rate = float(rate_value)
+                seen.add((gender, item_age_group))
             except (KeyError, TypeError, ValueError) as exc:
                 raise MarketApiError(f"stat[{index}]의 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
+            if item_age_group != age_group:
+                continue
             observations.append(
                 MetricObservation(
                     metric_name="visitor_age_group_rate",
@@ -341,7 +451,7 @@ def get_visitor_demographics(area: AreaIdentity, target_age: str, period: Analys
             "area": area.model_dump(mode="json"),
             "target_age_group": age_group,
             "observations": observations,
-            "missing_data": [] if observations else [f"{target_age} 방문자 비율 데이터가 없습니다."],
+            "missing_data": [] if observations else [f"{normalized_target_age} 방문자 비율 데이터가 없습니다."],
         }
         return ToolResult(success=True, source=_VISITOR_SOURCE, data=data, error_code=None, error_message=None, is_mock=False)
     except MarketApiError as exc:
@@ -378,22 +488,40 @@ def search_competitors(area: AreaIdentity, radius_m: int) -> ToolResult:
         info = payload.get("searchPoiInfo")
         if not isinstance(info, dict):
             raise MarketApiError("TMAP 검색 응답 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
-        pois_node = info.get("pois", {})
-        pois = pois_node.get("poi", []) if isinstance(pois_node, dict) else []
-        if not isinstance(pois, list):
+        pois_node = info.get("pois")
+        if not isinstance(pois_node, dict) or not isinstance(pois_node.get("poi"), list):
             raise MarketApiError("TMAP POI 목록 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
+        pois = pois_node["poi"]
 
-        competitors = []
+        competitors_by_id: dict[str, dict[str, Any]] = {}
         for index, poi in enumerate(pois):
             try:
-                distance_m = float(poi["radius"]) * 1000
-                latitude = float(poi.get("frontLat") or poi["noorLat"])
-                longitude = float(poi.get("frontLon") or poi["noorLon"])
+                if not isinstance(poi, dict):
+                    raise TypeError
+                poi_id = poi["id"]
+                name = poi["name"]
+                if not isinstance(poi_id, str) or not poi_id.strip() or not isinstance(name, str) or not name.strip():
+                    raise ValueError
+                latitude_value = poi.get("frontLat") or poi["noorLat"]
+                longitude_value = poi.get("frontLon") or poi["noorLon"]
+                if any(isinstance(value, bool) for value in (poi["radius"], latitude_value, longitude_value)):
+                    raise ValueError
+                distance_km = float(poi["radius"])
+                latitude = float(latitude_value)
+                longitude = float(longitude_value)
+                if (
+                    not all(math.isfinite(value) for value in (distance_km, latitude, longitude))
+                    or distance_km < 0
+                    or not -90 <= latitude <= 90
+                    or not -180 <= longitude <= 180
+                ):
+                    raise ValueError
+                distance_m = distance_km * 1000
                 if distance_m > radius_m:
                     continue
                 competitor = {
-                    "poi_id": str(poi["id"]),
-                    "name": str(poi["name"]),
+                    "poi_id": poi_id.strip(),
+                    "name": name.strip(),
                     "latitude": latitude,
                     "longitude": longitude,
                     "distance_m": distance_m,
@@ -404,12 +532,13 @@ def search_competitors(area: AreaIdentity, radius_m: int) -> ToolResult:
                         if str(poi.get(field, "")).strip()
                     ),
                 }
-                if not competitor["poi_id"] or not competitor["name"]:
-                    raise ValueError
             except (KeyError, TypeError, ValueError) as exc:
                 raise MarketApiError(f"poi[{index}]의 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
-            competitors.append(competitor)
+            previous = competitors_by_id.get(competitor["poi_id"])
+            if previous is None or competitor["distance_m"] < previous["distance_m"]:
+                competitors_by_id[competitor["poi_id"]] = competitor
 
+        competitors = list(competitors_by_id.values())
         competitors.sort(key=lambda item: item["distance_m"])
         data = {
             "area": area.model_dump(mode="json"),

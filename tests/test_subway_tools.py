@@ -44,18 +44,18 @@ def test_parse_success_response() -> None:
 
     result = _parse_station_exit_traffic(payload, "221")
 
-    assert result["station_id"] == "221"
-    assert len(result["observations"]) == 3
-    first = result["observations"][0]
-    assert first["metric_name"] == "station_exit_user_count"
-    assert first["value"] == 15.0
-    assert first["unit"] == "persons/hour"
-    assert first["dimensions"] == {
+    assert result.station_id == "221"
+    assert len(result.observations) == 3
+    first = result.observations[0]
+    assert first.metric_name == "station_exit_user_count"
+    assert first.value == 15.0
+    assert first.unit == "persons/hour"
+    assert first.dimensions == {
         "exit_number": "1",
         "day_type": "weekday",
         "time_slot": "05:00-06:00",
     }
-    assert first["period"]["start_date"] == "2026-09-10"
+    assert first.period.start_date.isoformat() == "2026-09-10"
     StationTrafficData.model_validate(result)
 
 
@@ -64,9 +64,9 @@ def test_zero_user_count_is_not_missing() -> None:
 
     result = _parse_station_exit_traffic(payload, "221")
 
-    zero_observation = result["observations"][2]
-    assert zero_observation["value"] == 0.0
-    assert zero_observation["missing_reason"] is None
+    zero_observation = result.observations[2]
+    assert zero_observation.value == 0.0
+    assert zero_observation.missing_reason is None
 
 
 def test_identical_raw_observation_is_not_duplicated() -> None:
@@ -75,7 +75,7 @@ def test_identical_raw_observation_is_not_duplicated() -> None:
 
     result = _parse_station_exit_traffic(payload, "221")
 
-    assert len(result["observations"]) == 3
+    assert len(result.observations) == 3
 
 
 def test_empty_raw_is_successful_empty_result() -> None:
@@ -83,8 +83,8 @@ def test_empty_raw_is_successful_empty_result() -> None:
 
     result = _parse_station_exit_traffic(payload, "221")
 
-    assert result["observations"] == []
-    assert result["missing_data"]
+    assert result.observations == []
+    assert result.missing_data
     StationTrafficData.model_validate(result)
 
 
@@ -112,6 +112,45 @@ def test_invalid_datetime_is_rejected() -> None:
 
     with pytest.raises(SubwayResponseError):
         _parse_station_exit_traffic(payload, "221")
+
+
+def test_observation_date_must_match_requested_date() -> None:
+    payload = _load_fixture("subway_exit_traffic_success.json")
+    period = AnalysisPeriod(start_date="2026-09-11", end_date="2026-09-11", day_types=["weekday"])
+
+    with pytest.raises(SubwayResponseError):
+        _parse_station_exit_traffic(payload, "221", period)
+
+
+def test_hourly_observation_must_start_on_the_hour() -> None:
+    payload = _load_fixture("subway_exit_traffic_success.json")
+    payload["contents"]["raw"][0]["datetime"] = "20260910053000"
+
+    with pytest.raises(SubwayResponseError):
+        _parse_station_exit_traffic(payload, "221")
+
+
+def test_holiday_traffic_is_classified_and_filtered() -> None:
+    payload = _load_fixture("subway_exit_traffic_success.json")
+    for item in payload["contents"]["raw"]:
+        item["datetime"] = "20260815" + item["datetime"][8:]
+    holiday_period = AnalysisPeriod(start_date="2026-08-15", end_date="2026-08-15", day_types=["holiday"])
+
+    result = _parse_station_exit_traffic(payload, "221", holiday_period)
+
+    assert result.observations
+    assert {item.dimensions["day_type"] for item in result.observations} == {"holiday"}
+
+
+def test_holiday_is_not_included_as_weekend() -> None:
+    payload = _load_fixture("subway_exit_traffic_success.json")
+    for item in payload["contents"]["raw"]:
+        item["datetime"] = "20260815" + item["datetime"][8:]
+    weekend_period = AnalysisPeriod(start_date="2026-08-15", end_date="2026-08-15", day_types=["weekend"])
+
+    result = _parse_station_exit_traffic(payload, "221", weekend_period)
+
+    assert result.observations == []
 
 
 @pytest.mark.parametrize("station_id", ["", "2", "221-", "abc", "221-RR"])
@@ -287,9 +326,11 @@ def test_find_nearby_stations_sorts_by_distance(monkeypatch: pytest.MonkeyPatch)
 
 def test_find_nearby_stations_returns_contract_errors() -> None:
     invalid = subway_tools.find_nearby_stations("37.5", 127.0, 500)
+    invalid_radius = subway_tools.find_nearby_stations(37.5, 127.0, 500.5)
     missing = subway_tools.find_nearby_stations(0.0, 0.0, 500)
 
     assert invalid.error_code == ErrorCode.INVALID_INPUT
+    assert invalid_radius.error_code == ErrorCode.INVALID_INPUT
     assert missing.error_code == ErrorCode.STATION_NOT_FOUND
 
 

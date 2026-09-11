@@ -42,7 +42,7 @@ def _period() -> AnalysisPeriod:
     )
 
 
-def test_search_and_resolve_keep_unknown_values_none(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_and_resolve_enrich_verified_area(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         market_tools,
         "_fetch_areas",
@@ -57,8 +57,39 @@ def test_search_and_resolve_keep_unknown_values_none(monkeypatch: pytest.MonkeyP
 
     assert searched.success and len(searched.data) == 1
     assert resolved.success
-    assert resolved.data["administrative_code"] is None
-    assert resolved.data["latitude"] is None
+    assert resolved.data["administrative_code"] == "1168010100"
+    assert resolved.data["latitude"] == pytest.approx(37.50012959)
+    assert resolved.data["longitude"] == pytest.approx(127.03529551)
+
+
+def test_search_uses_verified_region_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        market_tools,
+        "_fetch_areas",
+        lambda: [
+            {"areaId": "9307", "areaName": "역삼역남부 3번출구"},
+            {"areaId": "9195", "areaName": "명동"},
+        ],
+    )
+
+    result = market_tools.search_supported_districts("강남구")
+
+    assert result.success
+    assert [area["commercial_area_id"] for area in result.data] == ["9307"]
+
+
+def test_reference_name_mismatch_is_not_enriched(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        market_tools,
+        "_fetch_areas",
+        lambda: [{"areaId": "9307", "areaName": "변경된 상권명"}],
+    )
+
+    result = market_tools.resolve_area_entities("9307")
+
+    assert result.success
+    assert result.data["administrative_code"] is None
+    assert result.data["latitude"] is None
 
 
 def test_congestion_preserves_density_level_and_hour(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,6 +112,73 @@ def test_congestion_preserves_density_level_and_hour(monkeypatch: pytest.MonkeyP
         ("district_congestion_level", 8.0),
     ]
     assert observations[0].dimensions["time_slot"] == "18:00-19:00"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("datetime", "20260911180000"),
+        ("datetime", "20260910183000"),
+        ("congestion", True),
+        ("congestion", float("nan")),
+        ("congestionLevel", 8.5),
+    ],
+)
+def test_invalid_congestion_row_is_response_error(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    payload = {
+        "status": {"code": "00"},
+        "contents": {
+            "areaId": "9307",
+            "raw": [{"congestion": 0.04, "congestionLevel": 8, "datetime": "20260910180000"}],
+        },
+    }
+    payload["contents"]["raw"][0][field] = value
+    monkeypatch.setattr(market_tools, "_request_json", lambda *args, **kwargs: payload)
+
+    result = market_tools.get_district_congestion(_area(), _period())
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
+
+
+def test_holiday_congestion_is_not_relabeled_from_an_ordinary_weekday(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "status": {"code": "00"},
+        "contents": {
+            "areaId": "9307",
+            "raw": [{"congestion": 0.04, "congestionLevel": 8, "datetime": "20260910180000"}],
+        },
+    }
+    monkeypatch.setattr(market_tools, "_request_json", lambda *args, **kwargs: payload)
+    period = AnalysisPeriod(start_date="2026-09-10", end_date="2026-09-10", day_types=["holiday"])
+
+    result = market_tools.get_district_congestion(_area(), period)
+
+    assert result.success
+    assert result.data["observations"] == []
+
+
+def test_holiday_congestion_uses_holiday_dimension(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "status": {"code": "00"},
+        "contents": {
+            "areaId": "9307",
+            "raw": [{"congestion": 0.04, "congestionLevel": 8, "datetime": "20261009180000"}],
+        },
+    }
+    monkeypatch.setattr(market_tools, "_request_json", lambda *args, **kwargs: payload)
+    period = AnalysisPeriod(start_date="2026-10-09", end_date="2026-10-09", day_types=["holiday"])
+
+    result = market_tools.get_district_congestion(_area(), period)
+
+    assert result.success
+    observations = [MetricObservation.model_validate(item) for item in result.data["observations"]]
+    assert {item.dimensions["day_type"] for item in observations} == {"holiday"}
 
 
 def test_visitors_select_target_age_and_keep_gender(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,6 +207,35 @@ def test_visitors_select_target_age_and_keep_gender(monkeypatch: pytest.MonkeyPa
     assert sum(item.value for item in observations if item.value is not None) == 26.0
 
 
+@pytest.mark.parametrize(
+    "bad_row",
+    [
+        {"gender": "unknown", "ageGrp": "30", "rate": 10.0},
+        {"gender": "male", "ageGrp": "unsupported", "rate": 10.0},
+        {"gender": "male", "ageGrp": "30", "rate": 101.0},
+        {"gender": "male", "ageGrp": "30", "rate": float("nan")},
+    ],
+)
+def test_malformed_unselected_visitor_row_is_response_error(
+    monkeypatch: pytest.MonkeyPatch,
+    bad_row: dict,
+) -> None:
+    payload = {
+        "status": {"code": "00"},
+        "contents": {
+            "areaId": "9307",
+            "stat": [{"gender": "male", "ageGrp": "20", "rate": 12.5}, bad_row],
+            "statStartDate": "20260812",
+            "statEndDate": "20260910",
+        },
+    }
+    monkeypatch.setattr(market_tools, "_request_json", lambda *args, **kwargs: payload)
+
+    result = market_tools.get_visitor_demographics(_area(), "20대", _period())
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
+
+
 def test_competitor_search_filters_exact_meter_radius(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {
         "searchPoiInfo": {
@@ -130,6 +257,45 @@ def test_competitor_search_filters_exact_meter_radius(monkeypatch: pytest.Monkey
     assert result.success is True
     assert [item["poi_id"] for item in result.data["competitors"]] == ["1"]
     assert result.data["competitors"][0]["distance_m"] == 400
+
+
+def test_competitor_search_deduplicates_poi_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "searchPoiInfo": {
+            "pois": {
+                "poi": [
+                    {"id": "1", "name": "스터디카페", "radius": "0.4", "frontLat": "37.5", "frontLon": "127.0"},
+                    {"id": "1", "name": "스터디카페 입구", "radius": "0.3", "frontLat": "37.5", "frontLon": "127.0"},
+                ]
+            }
+        }
+    }
+    monkeypatch.setattr(market_tools, "_request_json", lambda *args, **kwargs: payload)
+
+    result = market_tools.search_competitors(_area(located=True), 500)
+
+    assert result.success
+    assert len(result.data["competitors"]) == 1
+    assert result.data["competitors"][0]["distance_m"] == 300
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("radius", "NaN"), ("radius", "-1"), ("frontLat", "91"), ("frontLon", "181")],
+)
+def test_invalid_competitor_poi_is_response_error(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    poi = {"id": "1", "name": "스터디카페", "radius": "0.4", "frontLat": "37.5", "frontLon": "127.0"}
+    poi[field] = value
+    payload = {"searchPoiInfo": {"pois": {"poi": [poi]}}}
+    monkeypatch.setattr(market_tools, "_request_json", lambda *args, **kwargs: payload)
+
+    result = market_tools.search_competitors(_area(located=True), 500)
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
 
 
 def test_competitor_search_requires_coordinates() -> None:
@@ -179,6 +345,32 @@ def test_supported_area_no_match_is_not_api_failure(monkeypatch: pytest.MonkeyPa
     assert result.data == []
 
 
+@pytest.mark.parametrize(
+    "contents",
+    [
+        [None],
+        [{"areaId": "9307", "areaName": ""}],
+        [
+            {"areaId": "9307", "areaName": "역삼역남부 3번출구"},
+            {"areaId": "9307", "areaName": "중복 상권"},
+        ],
+    ],
+)
+def test_malformed_area_list_is_response_error(
+    monkeypatch: pytest.MonkeyPatch,
+    contents: list,
+) -> None:
+    monkeypatch.setattr(
+        market_tools,
+        "_request_json",
+        lambda *args, **kwargs: {"status": {"code": "00"}, "contents": contents},
+    )
+
+    result = market_tools.search_supported_districts("역삼")
+
+    assert result.error_code == ErrorCode.API_RESPONSE_ERROR
+
+
 def test_empty_congestion_is_success_with_missing_data(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {
         "status": {"code": "00"},
@@ -210,6 +402,22 @@ def test_empty_target_demographic_is_success_with_missing_data(monkeypatch: pyte
     assert result.success is True
     assert result.data["observations"] == []
     assert result.data["missing_data"]
+
+
+def test_provider_age_code_is_not_accepted_as_user_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    def fake_request(*args: object, **kwargs: object) -> dict:
+        nonlocal calls
+        calls += 1
+        return {}
+
+    monkeypatch.setattr(market_tools, "_request_json", fake_request)
+
+    result = market_tools.get_visitor_demographics(_area(), "20", _period())  # type: ignore[arg-type]
+
+    assert result.error_code == ErrorCode.INVALID_INPUT
+    assert calls == 0
 
 
 def test_empty_competitor_result_is_valid_zero(monkeypatch: pytest.MonkeyPatch) -> None:
