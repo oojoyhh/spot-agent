@@ -22,7 +22,7 @@ README 변경은 역할 5에게 전달한다. State 내부 갱신이나 모델 �
 
 화면은 BusinessConditions 필드에 맞춰 지역·보증금·월세·타깃 연령·시작/종료 시간·우선순위를 받는다. 예산 단위는 원이며 빈 값과 0을 구별한다. 사용자 메시지와 조건을 AgentRequest로 전달한다.
 
-호출 경계는 제안 `run_analysis(request, context) -> StudySpotResponse`다. data Tool·점수 Tool·Store를 UI가 직접 호출하지 않는다. Context는 앱 실행 계층에서 관리하고 사용자가 user_role을 입력해 권한을 바꾸는 화면을 만들지 않는다.
+호출 경계는 `run_analysis(request, context) -> StudySpotResponse`다. data Tool·점수 Tool·Store를 UI가 직접 호출하지 않는다. Context는 앱 실행 계층에서 관리하고 사용자가 user_role을 입력해 권한을 바꾸는 화면을 만들지 않는다.
 
 반환 모델 필드로만 화면을 만든다. 추천 순서·점수는 Agent 결과를 유지한다. 화면에 필요한 식별자가 없으면 이름 문자열로 저장하지 말고 역할 4·5에 계약 확장을 요청한다. **추가 제안:** AreaRecommendation에 commercial_area_id를 추가하여 관심 상권 선택을 연결한다.
 
@@ -35,7 +35,7 @@ README 변경은 역할 5에게 전달한다. State 내부 갱신이나 모델 �
 | no_result | 빈 결과 원인·조건 완화 안내. 시스템 오류라면 오류임을 구분 |
 | approval_required | 전송/일정 내용·대상·승인/거절 버튼. 승인 전 실행 완료 표현 금지 |
 
-누락 세부 점수 None은 '데이터 없음'으로 표시한다. 0점으로 바꾸거나 화면에서 총점을 재계산하지 않는다. Mock은 관련 근거와 추천에 눈에 띄게 표시하고 실/Mock 혼합 여부를 숨기지 않는다. confidence가 검증된 사업 성공 확률인 것처럼 표현하지 않는다.
+누락 세부 점수 `None`은 '데이터 없음(총점에는 0점 반영)'으로 표시한다. 이를 실제 관측된 0점으로 바꾸거나 화면에서 총점을 재계산하지 않는다. Mock은 관련 근거와 추천에 눈에 띄게 표시하고 실/Mock 혼합 여부를 숨기지 않는다. confidence가 검증된 사업 성공 확률인 것처럼 표현하지 않는다.
 
 승인 버튼은 action_id·payload 버전에 묶인 의도만 Agent로 보낸다. 승인 내용이 변경되면 다시 표시한다. 버튼 중복 클릭·Streamlit 재실행으로 같은 행동이 재전송되지 않도록 UI 처리하고 서버 중복 방지와 함께 테스트한다. 거절 시 실행되지 않았음을 표시한다. 실제 행동 Mock은 '실제 전송/등록되지 않음'이라고 표시한다.
 

@@ -11,7 +11,7 @@
 | 파일 | 개발할 내용 |
 |---|---|
 | `memory/store.py` | 사용자별 선호 조회·저장, `save_user_preferences`, `save_shortlist`, 저장소 연결 |
-| `memory/state.py` (추가 제안) | State 초기화·갱신·요약·체크포인트 연결; 모델 자체는 재선언하지 않음 |
+| `memory/state.py` | State 초기화·갱신·요약·체크포인트 연결; 모델 자체는 재선언하지 않음 |
 | `tests/test_memory.py` | 세션 복원·사용자 격리·조건 변경·저장 실패 테스트 |
 | `docs/memory.md` | 상태 수명, 키 구조, 저장 시점, 재시작 보존 범위, 삭제 정책 |
 
