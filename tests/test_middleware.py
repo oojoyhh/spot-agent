@@ -6,7 +6,10 @@ from langchain.agents.middleware.types import ToolCallRequest
 from langchain.tools import ToolRuntime
 
 from middleware.middleware import (
+    MaxIterationReached,
     SensitiveActionExecutionDenied,
+    can_continue_agent_iteration,
+    ensure_agent_iteration_available,
     ensure_sensitive_action_approved,
     execute_with_retry,
     sensitive_action_execution_guard,
@@ -320,3 +323,25 @@ def test_sensitive_action_adapter_checks_state_and_context_before_handler():
     with pytest.raises(SensitiveActionExecutionDenied):
         sensitive_action_execution_guard.wrap_tool_call(request, handler)
     assert calls == 1
+
+
+@pytest.mark.parametrize("current_iteration", [0, 4])
+def test_max_iteration_policy_allows_calls_below_limit(current_iteration):
+    assert can_continue_agent_iteration(current_iteration, max_iterations=5)
+
+
+@pytest.mark.parametrize("current_iteration", [5, 6])
+def test_max_iteration_policy_blocks_calls_at_or_above_limit(current_iteration):
+    assert not can_continue_agent_iteration(current_iteration, max_iterations=5)
+    with pytest.raises(MaxIterationReached) as exc_info:
+        ensure_agent_iteration_available(current_iteration, max_iterations=5)
+    assert exc_info.value.error_code is ErrorCode.MAX_ITERATION_REACHED
+
+
+@pytest.mark.parametrize(
+    ("current_iteration", "max_iterations"),
+    [(-1, 5), (0, 0), (0, -1)],
+)
+def test_max_iteration_policy_rejects_invalid_counts(current_iteration, max_iterations):
+    with pytest.raises(ValueError):
+        can_continue_agent_iteration(current_iteration, max_iterations)

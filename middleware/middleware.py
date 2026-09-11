@@ -13,6 +13,10 @@ LangChain ``wrap_tool_call``에 연결한다. ``build_human_in_the_loop_middlewa
 HumanInTheLoopMiddleware가 사용자 승인/거절 흐름을 담당한다면, sensitive
 action execution guard는 모델 validation과 HITL 이후에도 실제 외부 행동
 직전에 승인 상태와 실행 주체를 재확인하는 최종 방어선이다.
+
+Max iteration core policy는 Agent 무한 반복을 막는 반복 허용 여부 판단이다.
+반복 횟수를 공식적으로 제공하는 Agent State가 확정되면 ``before_model``
+lifecycle adapter로 연결한다.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ import json
 from typing import Any, TypeVar
 
 from langchain.agents.middleware import HumanInTheLoopMiddleware, wrap_tool_call
-from models.schemas import PendingAction, RuntimeContext
+from models.schemas import ErrorCode, PendingAction, RuntimeContext
 
 T = TypeVar("T")
 MAX_TOOL_ATTEMPTS = 3
@@ -36,6 +40,12 @@ SENSITIVE_ACTION_TOOL_TYPES = {
 
 class SensitiveActionExecutionDenied(PermissionError):
     """외부 행동의 실행 전 승인 검증이 실패했을 때 발생한다."""
+
+
+class MaxIterationReached(RuntimeError):
+    """Agent 반복 한도에 도달했음을 공통 ErrorCode와 함께 알린다."""
+
+    error_code = ErrorCode.MAX_ITERATION_REACHED
 
 
 def _get_success(result: Any) -> bool | None:
@@ -174,4 +184,20 @@ def sensitive_action_execution_guard(request: Any, handler: Callable[[Any], Any]
     return handler(request)
 
 
-# TODO: Agent graph/recursion 정책이 확정된 뒤 MaxIterationMiddleware를 연결한다.
+def can_continue_agent_iteration(current_iteration: int, max_iterations: int) -> bool:
+    """현재 반복이 Agent의 추가 Model/Tool 호출 한도 안에 있는지 판정한다."""
+    if current_iteration < 0:
+        raise ValueError("current_iteration은 0 이상이어야 합니다")
+    if max_iterations <= 0:
+        raise ValueError("max_iterations는 1 이상이어야 합니다")
+    return current_iteration < max_iterations
+
+
+def ensure_agent_iteration_available(current_iteration: int, max_iterations: int) -> None:
+    """한도 도달 시 추가 호출을 막고 MAX_ITERATION_REACHED를 식별 가능하게 한다."""
+    if not can_continue_agent_iteration(current_iteration, max_iterations):
+        raise MaxIterationReached("Agent 최대 반복 횟수에 도달했습니다")
+
+
+# TODO: 현재 before_model state/runtime에는 안정적인 iteration count가 없다.
+# Agent가 해당 값을 공식 State로 제공하면 이 policy를 before_model adapter에 연결한다.
