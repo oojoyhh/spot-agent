@@ -6,7 +6,7 @@
 
 | 역할 | 문서 | 브랜치 |
 |---|---|---|
-| 1 SK 학원·지하철 API · 중우 | [01_API_Tool.md](01_API_Tool.md) | feature/api-tools |
+| 1 전체 API Tool · 중우 | [01_API_Tool.md](01_API_Tool.md) | feature/api-tools |
 | 2 State·Store·Memory · 소유 | [02_Memory.md](02_Memory.md) | feature/memory |
 | 3 Guardrail·Middleware · 연주 | [03_Guardrail_Middleware.md](03_Guardrail_Middleware.md) | feature/guardrails |
 | 4 Structured Output·점수 · 효주 | [04_Scoring_Structured_Output.md](04_Scoring_Structured_Output.md) | feature/scoring |
@@ -17,6 +17,6 @@
 
 ## 읽을 때 주의할 구분
 
-기존 사용자 합의와 새로 보완한 제안을 분리했다. 특히 API payload 세부 타입, State 타입, 누락 점수의 nullable 확장, 승인 요청 전달, market/action Tool 담당은 skeleton 단계에서 팀이 확정할 제안이다. 확정된 기존 필드명·Tool 이름·기본 배점·브랜치 전략은 유지했다.
+2026-09-11 확정된 공통 규격을 반영했다. 점수는 고정 배점을 사용하고 총점은 세부 점수 합과 일치한다. 계산 불가 세부 점수는 nullable로 유지하되 총점 기여도는 0점으로 처리한다. market/action을 포함한 API 구현과 테스트는 역할 1 중우가 담당하고 역할 5 석휘는 Agent 연결을 담당한다. `confidence` 산식·정규화 기준·실제 외부 서비스 범위처럼 별도로 결정하지 않은 값은 미정으로 유지한다.
 
 근거는 제공된 대화와 추가로 확인한 해당 대화의 공통 규격이다. 이번 작업에서 Drive의 만두스크림.docx 원문이나 실제 API 상품 사양을 재검증하지 않았다. 실제 API 연동 시 담당자가 공식 사양을 확인하도록 명시했다.
