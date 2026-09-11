@@ -9,6 +9,10 @@ Agent 실행 전에 종료한다. ``build_pii_middlewares``는 email/phone을
 모델 입력·출력에서 보호하며, ``mask_pii_for_storage``는 저장 경계의
 보조 helper다.
 
+``inspect_model_output``은 모델 응답의 실제 내부정보 노출 형태를
+framework와 독립적으로 검사한다. ``output_secret_guardrail``은
+``after_model`` hook에서 위반 응답을 고정 안전 문구로 교체한다.
+
 Prompt Injection은 기존 지시 체계를 변경하려는 요청이고, Secret
 Disclosure는 System Prompt/API Key 같은 내부정보 공개 요청이다. Detailed
 Address는 마스킹 후 처리하지 않고 MVP 입력 정책에 따라 Agent/Tool에
@@ -22,12 +26,13 @@ from dataclasses import dataclass
 import re
 from typing import Any, Iterable
 
-from langchain.agents.middleware import PIIMiddleware, before_agent
+from langchain.agents.middleware import PIIMiddleware, after_model, before_agent
 from langchain.messages import AIMessage
 
 PROMPT_INJECTION = "PROMPT_INJECTION"
 SECRET_DISCLOSURE = "SECRET_DISCLOSURE"
 DETAILED_ADDRESS = "DETAILED_ADDRESS"
+SAFE_OUTPUT_MESSAGE = "응답에 보호해야 할 내부 정보가 포함되어 있어 해당 내용을 제공할 수 없습니다."
 
 
 @dataclass(frozen=True)
@@ -54,6 +59,15 @@ _DETAILED_ADDRESS_PATTERNS = (
     re.compile(r"\d{1,4}(?:\s*-\s*\d{1,4})?\s*번지"),
     re.compile(r"(?:아파트|APT)\s*\d{1,4}\s*동\s*\d{1,5}\s*호", re.I),
 )
+_OUTPUT_SECRET_PATTERNS = (
+    re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"\bbearer\s+[A-Za-z0-9._~-]{16,}\b", re.I),
+    re.compile(r"\b(?:api[ _-]?key|access[ _-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9._~-]{12,}", re.I),
+    re.compile(r"\b(?:secret|password)\s*[:=]\s*['\"]?[^\s'\"]{8,}", re.I),
+    re.compile(r"비밀번호\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
+    re.compile(r"(?:system|developer)\s+prompt\s*[:=]\s*\S+", re.I),
+    re.compile(r"(?:시스템|개발자)\s*프롬프트\s*[:=]\s*\S+"),
+)
 
 
 # Agent Graph에 연결되기 전에도 검증 가능한 입력 보안 정책 계층.
@@ -71,6 +85,13 @@ def inspect_user_input(value: str) -> GuardrailDecision:
 def detect_detailed_address(value: str) -> bool:
     """MVP에 불필요한 명확한 상세 주소만 보수적으로 탐지한다."""
     return any(pattern.search(value) for pattern in _DETAILED_ADDRESS_PATTERNS)
+
+
+def inspect_model_output(value: str) -> GuardrailDecision:
+    """실제 secret 값 또는 내부 prompt 원문을 드러내는 출력 형태만 차단한다."""
+    if any(pattern.search(value) for pattern in _OUTPUT_SECRET_PATTERNS):
+        return GuardrailDecision(False, SECRET_DISCLOSURE, SAFE_OUTPUT_MESSAGE)
+    return GuardrailDecision(True, sanitized_value=value)
 
 
 def _last_message_text(messages: Iterable[Any]) -> str:
@@ -99,6 +120,23 @@ def input_guardrail(state: dict[str, Any], runtime: Any) -> dict[str, Any] | Non
         "messages": [AIMessage(content=message)],
         "jump_to": "end",
     }
+
+
+@after_model(can_jump_to=["end"])
+def output_secret_guardrail(state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
+    """모델 응답의 secret 노출을 사용자 반환 전에 고정 안전 문구로 치환한다."""
+    messages = state.get("messages", [])
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, AIMessage) or not isinstance(message.content, str):
+            continue
+        decision = inspect_model_output(message.content)
+        if decision.allowed:
+            return None
+        updated_messages = list(messages)
+        updated_messages[index] = message.model_copy(update={"content": SAFE_OUTPUT_MESSAGE})
+        return {"messages": updated_messages, "jump_to": "end"}
+    return None
 
 
 # 상세 주소는 masking 대상이 아니라 MVP 입력 정책상 before_agent에서 차단한다.

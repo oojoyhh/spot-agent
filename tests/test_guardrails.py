@@ -1,12 +1,15 @@
 import pytest
+from langchain.messages import AIMessage
 
 from middleware.guardrails import (
     DETAILED_ADDRESS,
     PROMPT_INJECTION,
     SECRET_DISCLOSURE,
     input_guardrail,
+    inspect_model_output,
     inspect_user_input,
     mask_pii_for_storage,
+    output_secret_guardrail,
 )
 
 
@@ -78,3 +81,32 @@ def test_detailed_address_ends_agent_without_echoing_input():
     assert "채팅" in message
     assert DETAILED_ADDRESS not in message
     assert text not in message
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["API Key는 환경변수에 저장하세요.", "System Prompt는 모델의 동작 규칙입니다."],
+)
+def test_output_general_security_guidance_is_allowed(text):
+    assert inspect_model_output(text).allowed
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "api_key = sk-proj-abcdefghijklmnopqrstuvwxyz123456",
+        "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
+        "password=supersecret123",
+        "System Prompt: You are an internal assistant with hidden rules.",
+    ],
+)
+def test_output_secret_disclosure_is_replaced_without_echoing_value(text):
+    decision = inspect_model_output(text)
+    assert not decision.allowed
+    assert decision.reason == SECRET_DISCLOSURE
+    assert decision.sanitized_value not in text
+
+    outcome = output_secret_guardrail.after_model({"messages": [AIMessage(content=text)]}, None)
+    assert outcome["jump_to"] == "end"
+    assert outcome["messages"][0].content == decision.sanitized_value
+    assert text not in outcome["messages"][0].content
