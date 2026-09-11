@@ -1,0 +1,8 @@
+# 버전 미고정 상태. 역할 5가 호환 버전을 검증한 뒤 고정한다.
+langchain
+langchain-openai
+langgraph
+pydantic
+streamlit
+python-dotenv
+pytest
