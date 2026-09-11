@@ -24,6 +24,8 @@ from ui.contracts import (
     PRIORITY_METRIC_OPTIONS,
     REQUIRED_FIELD_LABELS,
     SCORE_FIELDS,
+    TARGET_AGE_OPTIONS,        # ← 추가
+    TARGET_AGE_UNSET_LABEL,    # ← 추가
     BusinessConditions,
 )
 
@@ -48,23 +50,27 @@ def render_conditions_form(current: BusinessConditions) -> Optional[BusinessCond
         col1, col2 = st.columns(2)
         with col1:
             deposit_raw = st.text_input(
-                "보증금 예산 (원)",
+                "보증금 예산 (만원)",
                 value="" if current.deposit_budget is None else str(current.deposit_budget),
-                placeholder="예: 50000000",
+                placeholder="예: 5000",
                 help="비워 두면 '미입력'으로 전달합니다. 0을 넣으면 실제 0원으로 전달합니다.",
             )
         with col2:
             rent_raw = st.text_input(
-                "월세 예산 (원)",
+                "월세 예산 (만원)",
                 value="" if current.monthly_rent_budget is None else str(current.monthly_rent_budget),
-                placeholder="예: 3000000",
+                placeholder="예: 300",
                 help="비워 두면 '미입력'으로 전달합니다. 0을 넣으면 실제 0원으로 전달합니다.",
             )
 
-        target_age = st.text_input(
+        age_choices = [TARGET_AGE_UNSET_LABEL, *TARGET_AGE_OPTIONS]
+        target_age_choice = st.selectbox(
             "타깃 연령",
-            value=current.target_age or "",
-            placeholder="예: 중고등학생, 20대 취업준비생",
+            options=age_choices,
+            index=age_choices.index(current.target_age)
+            if current.target_age in age_choices
+            else 0,
+            help="학원 API의 '학년', 지하철 API의 '나이대' 코드로 변환되는 값입니다. 자유 입력은 받지 않습니다.",
         )
 
         col3, col4 = st.columns(2)
@@ -119,7 +125,7 @@ def render_conditions_form(current: BusinessConditions) -> Optional[BusinessCond
         preferred_region=region.strip() or None,
         deposit_budget=deposit,
         monthly_rent_budget=rent,
-        target_age=target_age.strip() or None,
+        target_age=None if target_age_choice == TARGET_AGE_UNSET_LABEL else target_age_choice,
         operating_start_time=start_time,
         operating_end_time=end_time,
         priority_metrics=priorities,

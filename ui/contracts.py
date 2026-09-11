@@ -165,6 +165,21 @@ SCORE_FIELDS: tuple[tuple[str, str, int], ...] = (
 #: 누락 세부 점수 표기. 실제 관측 0점과 섞어 쓰지 않는다(docs/06).
 MISSING_SCORE_LABEL = "데이터 없음 (총점에는 0점 반영)"
 
+#: 타깃 연령 선택지 (효주님과 협의).
+#: 역할 1이 학원 API의 '학년'과 지하철 API의 '나이대' 코드로 변환한다.
+#: 자유 입력은 API 코드로 매핑할 수 없어 선택형으로 고정한다.
+TARGET_AGE_OPTIONS: tuple[str, ...] = (
+    "중학생",
+    "고등학생",
+    "대학생",
+    "20대",
+    "30대 이상",
+    "전체",
+)
+
+#: 선택 안 함 = 미입력(None). 필수 조건이라 need_more_information으로 이어진다.
+TARGET_AGE_UNSET_LABEL = "(선택 안 함)"
+
 #: 필수 조건 필드 → 화면 라벨. need_more_information 안내에 사용한다.
 REQUIRED_FIELD_LABELS: dict[str, str] = {
     "preferred_region": "희망 지역",
@@ -199,6 +214,8 @@ __all__ = [
     "AgentRequest",
     "SCORE_FIELDS",
     "MISSING_SCORE_LABEL",
+    "TARGET_AGE_OPTIONS",        # ← 추가
+    "TARGET_AGE_UNSET_LABEL",    # ← 추가
     "REQUIRED_FIELD_LABELS",
     "PRIORITY_METRIC_OPTIONS",
     "APPROVAL_ACTION_LABELS",
