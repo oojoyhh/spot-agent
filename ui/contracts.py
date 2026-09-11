@@ -190,8 +190,13 @@ REQUIRED_FIELD_LABELS: dict[str, str] = {
     "operating_end_time": "운영 종료 시간",
 }
 
+PRIORITY_METRIC_LABELS: dict[str, str] = {
+    field: label
+    for field, label, _ in SCORE_FIELDS
+}
+
 PRIORITY_METRIC_OPTIONS: tuple[str, ...] = tuple(
-    label for _, label, _ in SCORE_FIELDS
+    PRIORITY_METRIC_LABELS
 )
 
 APPROVAL_ACTION_LABELS: dict[str, str] = {

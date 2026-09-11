@@ -102,6 +102,7 @@ def set_conditions(value: BusinessConditions) -> None:
     """조건을 교체한다. 후속 질문에서도 기존 입력값은 화면에 유지된다(INT-06)."""
     st.session_state[K_CONDITIONS] = value
 
+WON_PER_MANWON = 10_000
 
 def parse_budget(raw: str) -> tuple[Optional[int], Optional[str]]:
     """예산 문자열 → 원(KRW) 정수.
@@ -112,9 +113,13 @@ def parse_budget(raw: str) -> tuple[Optional[int], Optional[str]]:
     if text == "":
         return None, None
     if not text.isdigit():
-        return None, "숫자만 입력해 주세요. 단위는 원(KRW)입니다."
-    return int(text), None
+        return None, "숫자만 입력해 주세요. 단위는 만원(KRW)입니다."
+    return int(text) * WON_PER_MANWON, None
 
+def format_budget(value: Optional[int]) -> str:
+    if value is None:
+        return ""
+    return str(value // WON_PER_MANWON)
 
 def parse_time(raw: str) -> tuple[Optional[str], Optional[str]]:
     """운영 시간 문자열 → "HH:MM". 빈 값은 (None, None)."""

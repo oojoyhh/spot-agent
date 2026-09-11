@@ -28,33 +28,35 @@ st.set_page_config(page_title="StudySpot", page_icon="📚", layout="wide")
 ui_state.init()
 
 
-def _request_analysis(approval: dict | None = None) -> None:
+def _request_analysis(*, message: str | None = None, approval: dict | None = None) -> None:
     """호출 경계를 통과하는 유일한 함수. 여기 외에서 Agent를 호출하지 않는다."""
-    request = AgentRequest(
-        messages=list(ui_state.messages()),
-        business_conditions=ui_state.conditions(),
-        approval_decision=approval,
-    )
-    ui_state.set_busy(True)
     try:
+        if approval is not None:
+            # 승인 요청에는 business_conditions를 같이 보내면 안 됨
+            request = AgentRequest(approval_decision=approval)
+        else:
+            request = AgentRequest(
+                message=message,
+                business_conditions=ui_state.conditions(),
+            )
+
+        ui_state.set_busy(True)
         with st.spinner("분석 중입니다..."):
             response = call_agent(
                 request,
                 ui_state.context(),
                 stub_scenario=st.session_state[ui_state.K_STUB_SCENARIO],
             )
-    except Exception as exc:  # noqa: BLE001
-        # TODO(역할 3): Guardrail 차단·반복 제한·타임아웃 예외 타입 확정 후 분기한다.
-        # 앱을 중단시키지 않고 안내만 하며, 원문 응답·키를 화면에 노출하지 않는다(INT-09).
+    except Exception as exc:
         ui_state.set_busy(False)
         st.error(f"요청을 처리하지 못했습니다. ({type(exc).__name__})")
         return
-    ui_state.set_busy(False)
 
+    ui_state.set_busy(False)
     ui_state.set_last_response(response)
-    message = getattr(response, "message", "")
-    if message:
-        ui_state.append_message("assistant", message)
+
+    if response.message:
+        ui_state.append_message("assistant", response.message)
 
 
 # --- 사이드바 ----------------------------------------------------------------
@@ -98,8 +100,10 @@ st.header("출점 후보 분석")
 
 if submitted_conditions is not None:
     ui_state.set_conditions(submitted_conditions)
-    ui_state.append_message("user", "입력한 조건으로 분석을 요청합니다.")
-    _request_analysis()
+
+    analysis_message = "입력한 조건으로 분석을 요청합니다."
+    ui_state.append_message("user", analysis_message)
+    _request_analysis(message=analysis_message)
 
 tab_result, tab_chat = st.tabs(["분석 결과", "대화 기록"])
 
@@ -135,5 +139,5 @@ followup = st.chat_input(
 )
 if followup:
     ui_state.append_message("user", followup)
-    _request_analysis()
+    _request_analysis(message=followup)
     st.rerun()

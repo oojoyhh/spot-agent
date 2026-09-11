@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ui.contracts import PRIORITY_METRIC_LABELS
+
 import streamlit as st
 
 from ui import state as ui_state
@@ -90,8 +92,9 @@ def render_conditions_form(current: BusinessConditions) -> Optional[BusinessCond
 
         priorities = st.multiselect(
             "우선순위 지표 (참고용)",
-            options=list(PRIORITY_METRIC_OPTIONS),
-            default=[p for p in current.priority_metrics if p in PRIORITY_METRIC_OPTIONS],
+            options=list(PRIORITY_METRIC_LABELS),
+            default=list(current.priority_metrics),
+            format_func=lambda key: PRIORITY_METRIC_LABELS[key],
             help="우선순위는 참고 정보입니다. 공통계약 5절에 따라 배점은 바뀌지 않습니다.",
         )
 

@@ -102,6 +102,12 @@ def _stub_run_analysis(
     if scenario == "approval_required":
         return _stub_approval_required(context)
 
+    # 승인 요청은 business_conditions 검사보다 먼저 처리
+    if request.approval_decision is not None:
+        return _stub_after_decision(request)
+
+    conditions = request.business_conditions or BusinessConditions()
+
     # 자동 모드: 필수 조건이 빠졌으면 데이터 Tool을 호출하지 않고 되묻는다(INT-02).
     missing = _missing_required(request.business_conditions)
     if missing:
