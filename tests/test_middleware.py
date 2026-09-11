@@ -4,6 +4,7 @@ import pytest
 from langchain.messages import ToolMessage
 
 from middleware.middleware import execute_with_retry
+from models.schemas import ErrorCode, ToolResult
 
 
 @dataclass
@@ -15,6 +16,16 @@ class FakeToolResult:
 
 def failure(code: str) -> FakeToolResult:
     return FakeToolResult(False, code)
+
+
+def tool_failure(error_code: ErrorCode) -> ToolResult:
+    return ToolResult(
+        success=False,
+        source="test:api",
+        data={},
+        error_code=error_code,
+        is_mock=False,
+    )
 
 
 def test_mw_01_timeout_retries_exactly_three_times():
@@ -107,3 +118,97 @@ def test_mw_06_no_data_and_area_errors_do_not_retry_or_fallback(error_code):
         return FakeToolResult(True, source="mock")
     assert execute_with_retry(operation, mock_provider=mock).error_code == error_code
     assert (calls, mock_calls) == (1, 0)
+
+
+def test_tool_result_timeout_retries_exactly_three_times():
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(ErrorCode.API_TIMEOUT)
+
+    result = execute_with_retry(operation)
+    assert result.error_code is ErrorCode.API_TIMEOUT
+    assert calls == 3
+
+
+def test_tool_result_auth_error_does_not_retry():
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(ErrorCode.API_AUTH_ERROR)
+
+    assert execute_with_retry(operation).error_code is ErrorCode.API_AUTH_ERROR
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [ErrorCode.NO_DATA, ErrorCode.UNSUPPORTED_AREA, ErrorCode.AREA_NOT_FOUND],
+)
+def test_tool_result_no_data_or_area_errors_do_not_retry_or_fallback(error_code):
+    calls = mock_calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(error_code)
+
+    def mock():
+        nonlocal mock_calls
+        mock_calls += 1
+        return ToolResult(success=True, source="mock:test", data={}, is_mock=True)
+
+    assert execute_with_retry(operation, mock_provider=mock).error_code is error_code
+    assert (calls, mock_calls) == (1, 0)
+
+
+def test_tool_result_success_returns_immediately():
+    calls = 0
+    success = ToolResult(success=True, source="test:api", data={"area": "강남역"}, is_mock=False)
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return success
+
+    assert execute_with_retry(operation) is success
+    assert calls == 1
+
+
+def test_tool_result_mock_fallback_preserves_provider_contract():
+    calls = cache_calls = mock_calls = 0
+    mock_result = ToolResult(
+        success=True,
+        source="mock:api",
+        data={"area": "강남역"},
+        error_code=ErrorCode.API_TIMEOUT,
+        error_message="API timeout; mock fallback used",
+        is_mock=True,
+    )
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        return tool_failure(ErrorCode.API_TIMEOUT)
+
+    def cache():
+        nonlocal cache_calls
+        cache_calls += 1
+        return None
+
+    def mock():
+        nonlocal mock_calls
+        mock_calls += 1
+        return mock_result
+
+    result = execute_with_retry(operation, cache_provider=cache, mock_provider=mock)
+    assert result is mock_result
+    assert result.success and result.is_mock
+    assert isinstance(result.data, dict)
+    assert result.error_code is ErrorCode.API_TIMEOUT
+    assert result.error_message is not None
+    assert (calls, cache_calls, mock_calls) == (3, 1, 1)
