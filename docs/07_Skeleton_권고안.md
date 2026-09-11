@@ -33,14 +33,14 @@ StudySpot/
 │   ├── academy_tools.py
 │   ├── subway_tools.py
 │   ├── scoring_tools.py
-│   └── action_tools.py       # 추가 제안: 전송·일정, 담당 확정 후
+│   └── action_tools.py       # 역할 1: 전송·일정 API
 ├── models/
 │   ├── __init__.py
 │   └── schemas.py
 ├── memory/
 │   ├── __init__.py
 │   ├── store.py
-│   └── state.py              # 추가 제안: 상태 갱신·체크포인트
+│   └── state.py              # 역할 2: 상태 갱신·체크포인트
 ├── middleware/
 │   ├── __init__.py
 │   ├── guardrails.py
@@ -79,11 +79,11 @@ Mock fixture는 모델 확정 후 각 담당자가 만든다. skeleton 단계에
 
 ## 공통 파일 수정 방식
 
-역할 5가 폴더·공통 설정·문서 구성을 준비한다. 역할 4가 schemas.py 선언을 맡고, 역할 2는 State/Store 타입안을 제공한다. 같은 파일을 동시에 수정하지 않도록 작업 순서를 정한다. 기존 역할별 브랜치를 유지하며 별도 브랜치를 추가할 필요는 없다.
+역할 5가 폴더·공통 설정·문서 구성을 준비한다. 역할 4가 `models/schemas.py`의 공통 모델 선언을 맡고, 역할 2는 `memory/state.py`의 State 갱신·체크포인트 연결을 맡는다. 역할 1은 네 API Tool 모듈과 관련 테스트를 맡는다. 같은 파일을 동시에 수정하지 않도록 작업 순서를 정한다.
 
 권장 순서는 다음과 같다.
 
-1. 공통 계약의 추가 제안과 미배정 Tool 책임을 팀이 검토한다.
+1. 확정된 공통 계약과 역할 1의 API Tool 범위를 팀이 확인한다.
 2. 역할 5가 feature/agent-core에서 구조·소유권 문서 PR을 준비한다.
 3. 다른 조원 1명 이상 검토 후 main에 merge한다. main 직접 push는 하지 않는다.
 4. 역할 4가 갱신된 main을 바탕으로 feature/scoring에서 공통 선언 PR을 준비한다.
@@ -102,7 +102,7 @@ Mock fixture는 모델 확정 후 각 담당자가 만든다. skeleton 단계에
 
 - [ ] 최신 사용자 폴더 구조를 유지하고 추가 파일의 이유·소유자를 명시
 - [ ] 모든 공통 모델과 Tool 이름·인자·payload를 확정하거나 보류 표시
-- [ ] 누락 점수·승인 전달·미배정 Tool 정책 검토 완료
+- [ ] nullable 점수의 0점 기여·승인 전달·API Tool 담당 정책 반영
 - [ ] 패키지 import만으로 API/모델/DB 연결이 일어나지 않음
 - [ ] 미구현 모듈이 실제 성공 결과를 반환하지 않음
 - [ ] 공통 모델의 선언·직렬화·필수 필드 최소 검증 가능
