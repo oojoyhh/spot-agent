@@ -1,16 +1,20 @@
 import pytest
-from langchain.messages import AIMessage
+from langchain.messages import AIMessage, HumanMessage
+from langgraph.graph.message import add_messages
 
 from middleware.guardrails import (
     DETAILED_ADDRESS,
     PROMPT_INJECTION,
     SECRET_DISCLOSURE,
+    extract_coarse_location,
     input_guardrail,
     inspect_model_output,
     inspect_user_input,
     mask_pii_for_storage,
     output_secret_guardrail,
+    sanitize_detailed_address,
 )
+from models.schemas import StudySpotState
 
 
 def test_grd_01_masks_email_and_phone_number():
@@ -58,22 +62,15 @@ def test_commercial_area_location_expressions_are_allowed(text):
     assert inspect_user_input(text).allowed
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "서울 강남구 테헤란로 123 근처를 분석해줘",
-        "서울 노원구 동일로 1234에서 열고 싶어",
-        "OO아파트 101동 1203호 근처를 분석해줘",
-    ],
-)
-def test_detailed_address_is_blocked(text):
+@pytest.mark.parametrize("text", ["OO아파트 101동 1203호 근처를 분석해줘", "OO빌딩 3층 301호 근처"])
+def test_detailed_address_without_coarse_location_is_blocked(text):
     decision = inspect_user_input(text)
     assert not decision.allowed
     assert decision.reason == DETAILED_ADDRESS
 
 
 def test_detailed_address_ends_agent_without_echoing_input():
-    text = "서울 강남구 테헤란로 123 근처를 분석해줘"
+    text = "OO빌딩 3층 301호 근처"
     outcome = input_guardrail.before_agent({"messages": [{"content": text}]}, None)
     message = outcome["messages"][0].content
     assert outcome["jump_to"] == "end"
@@ -81,6 +78,57 @@ def test_detailed_address_ends_agent_without_echoing_input():
     assert "채팅" in message
     assert DETAILED_ADDRESS not in message
     assert text not in message
+
+
+@pytest.mark.parametrize(
+    ("text", "sanitized_value"),
+    [
+        ("서울 강남구 테헤란로 123", "서울 강남구"),
+        ("서울 강남구 대치동 은마아파트 31동 1201호", "서울 강남구 대치동"),
+        ("노원구 상계동 123-45", "노원구 상계동"),
+    ],
+)
+def test_detailed_address_with_coarse_location_is_sanitized_before_agent(text, sanitized_value):
+    decision = inspect_user_input(text)
+    assert decision.allowed
+    assert decision.sanitized_value == sanitized_value
+    assert extract_coarse_location(text) is not None
+    assert sanitize_detailed_address(text) == sanitized_value
+
+    outcome = input_guardrail.before_agent({"messages": [{"content": text}]}, None)
+    sanitized_message = outcome["messages"][0]["content"]
+    assert sanitized_message == sanitized_value
+    assert text not in sanitized_message
+
+
+@pytest.mark.parametrize(
+    ("text", "sanitized_value"),
+    [
+        ("서울 강남구 테헤란로 123 근처를 분석해줘", "서울 강남구 근처를 분석해줘"),
+        (
+            "서울 강남구 대치동 은마아파트 31동 1201호에서 월세 200만원 이하로 분석해줘",
+            "서울 강남구 대치동에서 월세 200만원 이하로 분석해줘",
+        ),
+    ],
+)
+def test_detailed_address_sanitization_preserves_analysis_intent(text, sanitized_value):
+    assert inspect_user_input(text).sanitized_value == sanitized_value
+
+
+def test_human_message_sanitization_replaces_original_in_studyspot_state_history():
+    raw_input = "서울 강남구 테헤란로 123 근처를 분석해줘"
+    original_message = HumanMessage(content=raw_input, id="human-1")
+    state: StudySpotState = {"messages": [original_message]}
+
+    update = input_guardrail.before_agent(state, None)
+    replacement = update["messages"][0]
+    assert replacement.id == original_message.id
+    assert replacement.content == "서울 강남구 근처를 분석해줘"
+
+    history = add_messages(state["messages"], update["messages"])
+    assert len(history) == 1
+    assert history[0].content == "서울 강남구 근처를 분석해줘"
+    assert all(raw_input not in str(message.content) for message in history)
 
 
 @pytest.mark.parametrize(

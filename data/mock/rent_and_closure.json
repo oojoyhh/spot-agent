@@ -1,0 +1,35 @@
+{
+  "description": "시연용 임의 값. 실제 데이터로 해석하지 않으며 필요 시 이 파일의 값만 교체한다.",
+  "unit_policy": {
+    "deposit": "KRW total",
+    "monthly_rent": "KRW total per month",
+    "closure_rate": "percent"
+  },
+  "default": {
+    "deposit_krw": 30000000,
+    "monthly_rent_krw": 2000000,
+    "closure_rate_percent": 8.0
+  },
+  "areas": {
+    "9307": {
+      "deposit_krw": 40000000,
+      "monthly_rent_krw": 2600000,
+      "closure_rate_percent": 7.4
+    },
+    "9368": {
+      "deposit_krw": 35000000,
+      "monthly_rent_krw": 2300000,
+      "closure_rate_percent": 8.1
+    },
+    "9310": {
+      "deposit_krw": 30000000,
+      "monthly_rent_krw": 2100000,
+      "closure_rate_percent": 8.8
+    },
+    "9308": {
+      "deposit_krw": 38000000,
+      "monthly_rent_krw": 2400000,
+      "closure_rate_percent": 7.9
+    }
+  }
+}

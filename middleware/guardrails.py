@@ -15,9 +15,10 @@ framework와 독립적으로 검사한다. ``output_secret_guardrail``은
 
 Prompt Injection은 기존 지시 체계를 변경하려는 요청이고, Secret
 Disclosure는 System Prompt/API Key 같은 내부정보 공개 요청이다. Detailed
-Address는 마스킹 후 처리하지 않고 MVP 입력 정책에 따라 Agent/Tool에
-전달하기 전 차단한다. 정규식 탐지는 알려진 공격 신호를 줄이는 1차 방어선일
-뿐 모든 injection이나 주소 형식을 완전히 탐지한다고 가정하지 않는다.
+Address는 MVP 입력 정책에 따라 coarse location으로 정제할 수 있을 때만
+Agent/Tool에 전달하고, 그렇지 않으면 실행 전에 차단한다. 정규식 탐지는 알려진
+공격 신호를 줄이는 1차 방어선일 뿐 모든 injection이나 주소 형식을 완전히
+탐지한다고 가정하지 않는다.
 """
 
 from __future__ import annotations
@@ -57,7 +58,19 @@ _SECRET_PATTERNS = (
 _DETAILED_ADDRESS_PATTERNS = (
     re.compile(r"(?:[가-힣A-Za-z]+(?:로|길))\s*\d{1,5}(?:\s*-\s*\d{1,4})?"),
     re.compile(r"\d{1,4}(?:\s*-\s*\d{1,4})?\s*번지"),
-    re.compile(r"(?:아파트|APT)\s*\d{1,4}\s*동\s*\d{1,5}\s*호", re.I),
+    re.compile(r"(?:[가-힣A-Za-z0-9]+)?(?:아파트|APT)\s*\d{1,4}\s*동\s*\d{1,5}\s*호", re.I),
+    re.compile(r"(?:[가-힣A-Za-z0-9]+(?:빌딩|건물))\s*\d{1,3}\s*층(?:\s*\d{1,5}\s*호)?"),
+    re.compile(r"(?:[가-힣]+(?:구|동))\s+\d{1,4}\s*-\s*\d{1,4}\b"),
+)
+_ROAD_ADDRESS_PATTERN = _DETAILED_ADDRESS_PATTERNS[0]
+_BUNJI_PATTERN = _DETAILED_ADDRESS_PATTERNS[1]
+_APARTMENT_DETAIL_PATTERN = _DETAILED_ADDRESS_PATTERNS[2]
+_BUILDING_DETAIL_PATTERN = _DETAILED_ADDRESS_PATTERNS[3]
+_DONG_LOT_PATTERN = re.compile(r"(?P<dong>[가-힣]+동)\s+\d{1,4}\s*-\s*\d{1,4}\b")
+_COARSE_LOCATION_PATTERNS = (
+    re.compile(r"(?:(?:서울(?:특별시)?\s+)?[가-힣]+구\s+[가-힣]+동)"),
+    re.compile(r"(?:서울(?:특별시)?\s+)?[가-힣]+구"),
+    re.compile(r"[가-힣]+동"),
 )
 _OUTPUT_SECRET_PATTERNS = (
     re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b"),
@@ -78,6 +91,9 @@ def inspect_user_input(value: str) -> GuardrailDecision:
     if any(pattern.search(value) for pattern in _INJECTION_PATTERNS):
         return GuardrailDecision(False, PROMPT_INJECTION)
     if detect_detailed_address(value):
+        coarse_location = extract_coarse_location(value)
+        if coarse_location is not None:
+            return GuardrailDecision(True, sanitized_value=sanitize_detailed_address(value))
         return GuardrailDecision(False, DETAILED_ADDRESS)
     return GuardrailDecision(True, sanitized_value=value)
 
@@ -85,6 +101,25 @@ def inspect_user_input(value: str) -> GuardrailDecision:
 def detect_detailed_address(value: str) -> bool:
     """MVP에 불필요한 명확한 상세 주소만 보수적으로 탐지한다."""
     return any(pattern.search(value) for pattern in _DETAILED_ADDRESS_PATTERNS)
+
+
+def extract_coarse_location(value: str) -> str | None:
+    """상세 주소에서 안전하게 재사용할 수 있는 구·동 수준 위치만 추출한다."""
+    for pattern in _COARSE_LOCATION_PATTERNS:
+        if match := pattern.search(value):
+            return match.group(0)
+    return None
+
+
+def sanitize_detailed_address(value: str) -> str:
+    """상세 주소 span만 제거해 구·동 위치와 사용자의 분석 의도를 함께 보존한다."""
+    sanitized = _ROAD_ADDRESS_PATTERN.sub("", value)
+    sanitized = _APARTMENT_DETAIL_PATTERN.sub("", sanitized)
+    sanitized = _BUILDING_DETAIL_PATTERN.sub("", sanitized)
+    sanitized = _DONG_LOT_PATTERN.sub(r"\g<dong>", sanitized)
+    sanitized = _BUNJI_PATTERN.sub("", sanitized)
+    sanitized = re.sub(r"\s+(?=에서)", "", sanitized)
+    return re.sub(r"\s{2,}", " ", sanitized).strip()
 
 
 def inspect_model_output(value: str) -> GuardrailDecision:
@@ -102,11 +137,31 @@ def _last_message_text(messages: Iterable[Any]) -> str:
     return ""
 
 
+def _replace_last_message_content(messages: Iterable[Any], sanitized_value: str) -> list[Any]:
+    """상세 주소 원문이 이후 Agent/Tool에 전달되지 않도록 마지막 입력을 교체한다."""
+    updated_messages = list(messages)
+    for index in range(len(updated_messages) - 1, -1, -1):
+        message = updated_messages[index]
+        content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+        if not isinstance(content, str):
+            continue
+        if isinstance(message, dict):
+            updated_messages[index] = {**message, "content": sanitized_value}
+        else:
+            updated_messages[index] = message.model_copy(update={"content": sanitized_value})
+        return updated_messages
+    return updated_messages
+
+
 @before_agent(can_jump_to=["end"])
 def input_guardrail(state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
     """위험 입력이면 모델 및 Tool 노드로 가기 전에 agent를 종료한다."""
-    decision = inspect_user_input(_last_message_text(state.get("messages", [])))
+    messages = state.get("messages", [])
+    user_input = _last_message_text(messages)
+    decision = inspect_user_input(user_input)
     if decision.allowed:
+        if decision.sanitized_value is not None and decision.sanitized_value != user_input:
+            return {"messages": _replace_last_message_content(messages, decision.sanitized_value)}
         return None
     if decision.reason == DETAILED_ADDRESS:
         message = (
@@ -139,8 +194,8 @@ def output_secret_guardrail(state: dict[str, Any], runtime: Any) -> dict[str, An
     return None
 
 
-# 상세 주소는 masking 대상이 아니라 MVP 입력 정책상 before_agent에서 차단한다.
-# 구·동·역·상권 단위 위치는 정상 분석 입력으로 Agent에 전달한다.
+# 상세 주소는 masking하지 않는다. coarse location을 추출하면 정제해 전달하고,
+# 추출하지 못하면 before_agent에서 차단한다. 구·동·역·상권은 정상 분석 입력이다.
 PHONE_NUMBER_PATTERN = r"(?<!\d)(?:\+?82[-\s]?)?0?1[0-9][\s-]?\d{3,4}[\s-]?\d{4}(?!\d)"
 
 

@@ -20,13 +20,15 @@
 
 공통 모델은 직접 수정하지 않고 역할 4에게 요청한다. `.env.example`에 필요한 변수는 역할 5에게 전달한다.
 
+공급자별 제한값은 `tools/api_types.py`의 역할 1 전용 `Literal` 타입으로 관리한다. 이는 공통 Pydantic 모델을 다시 선언하는 파일이 아니다.
+
 ## 입력/출력 계약
 
 공통 계약의 인자와 payload를 사용한다. 공급자 HTTP 파라미터는 내부 Tool 인자와 구분해 문서화한다.
 
 | Tool | 입력 | 정상 `ToolResult.data` |
 |---|---|---|
-| `get_academy_demand` | AreaIdentity, target_age, AnalysisPeriod | AcademyDemandData 사전 |
+| `get_academy_demand` | AreaIdentity, AnalysisPeriod, school_age=`all` | AcademyDemandData 사전 |
 | `find_nearby_stations` | latitude, longitude, radius_m | NearbyStation 목록 |
 | `get_station_exit_traffic` | station_id, AnalysisPeriod | StationTrafficData 사전 |
 | `search_supported_districts` | preferred_region | AreaIdentity 목록 |
@@ -39,9 +41,11 @@
 | `create_site_visit_event` | 승인된 서버 측 action | 실행 결과 식별자 |
 
 - `commercial_area_id`·`administrative_code`는 `resolve_area_entities`의 결과를 받는다. 지역명으로 임의 코드를 만들지 않는다.
+- 사용자 `target_age`는 방문자 연령대 입력이다. 학원 `school_age`로 추정 변환하지 않고, 특정 학령 요구가 없으면 `all`을 사용한다.
 - `station_id`는 인근 역 조회 결과의 동일 코드 체계를 사용한다. 출구별·시간대별 값의 중복 합산을 막기 위해 집계 단위를 문서화한다.
 - 원천 지표별 값·단위·대상 기간·출처·누락 이유를 남긴다. 지원하지 않는 연령 세분화·시간 단위는 제공되는 것처럼 표시하지 않는다.
 - 실패는 공통 오류 코드와 `success=False`로 반환한다. 원천 누락은 None과 missing_data로 나타내며 학원 0개와 구분한다.
+- HTTP 200 응답도 요청 식별자·필터·날짜 일치, 필수 필드 타입·범위, 중복 관측을 검증한다. 불일치나 비정상 값은 `API_RESPONSE_ERROR`로 처리한다.
 - Mock payload는 같은 모델 검증을 통과해야 한다. source와 is_mock를 보존한다.
 
 ## 의존 모듈과 책임 경계

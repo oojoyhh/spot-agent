@@ -1,0 +1,15 @@
+{
+  "status": {
+    "code": "00",
+    "message": "success",
+    "totalCount": 1
+  },
+  "contents": {
+    "subwayLine": "2호선",
+    "stationName": "역삼역",
+    "stationCode": "221",
+    "gender": "all",
+    "ageGrp": "all",
+    "raw": []
+  }
+}
