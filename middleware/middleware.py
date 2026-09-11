@@ -62,6 +62,12 @@ def _get_error_code(result: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _get_error_message(result: Any) -> str | None:
+    result = _tool_result_payload(result)
+    value = result.get("error_message") if isinstance(result, Mapping) else getattr(result, "error_message", None)
+    return value if isinstance(value, str) else None
+
+
 def _tool_result_payload(result: Any) -> Any:
     """ToolMessage content의 JSON ToolResult도 공통 모델 병합 전부터 읽는다."""
     if isinstance(result, Mapping) or hasattr(result, "success"):
@@ -86,9 +92,28 @@ def should_retry(result_or_exception: Any) -> bool:
     return _get_success(result_or_exception) is False and error_code in RETRYABLE_ERROR_CODES
 
 
+def _preserve_mock_failure_provenance(mock_result: T, failure: Any) -> T:
+    """공통 ToolResult가 허용한 Mock fallback provenance만 최종 결과에 남긴다."""
+    error_code = _get_error_code(failure)
+    if error_code is None:
+        return mock_result
+    error_message = _get_error_message(failure)
+
+    if hasattr(mock_result, "content") and isinstance(mock_result.content, str):
+        payload = _tool_result_payload(mock_result)
+        if isinstance(payload, Mapping) and payload.get("success") is True and payload.get("is_mock") is True:
+            updated = dict(payload)
+            updated["error_code"] = error_code
+            if error_message is not None:
+                updated["error_message"] = error_message
+            return mock_result.model_copy(update={"content": json.dumps(updated, ensure_ascii=False)})
+
+    return mock_result
+
+
 # 데이터 부재/미지원 지역은 Mock으로 성공 처리하지 않는다.
 # 실제 저장소는 이 모듈이 소유하지 않고 cache/mock provider로 주입받는다.
-def execute_with_retry(operation: Callable[..., T], *args: Any, cache_provider: Callable[..., T | None] | None = None, mock_provider: Callable[..., T] | None = None, **kwargs: Any) -> T:
+def execute_with_retry(operation: Callable[..., T], *args: Any, cache_provider: Callable[..., T | None] | None = None, mock_provider: Callable[..., T | None] | None = None, **kwargs: Any) -> T:
     """최대 세 번 실행하고, 소진 시 cache → mock을 적용한다.
 
     provider는 operation과 같은 인자를 받는다. 비재시도 오류는 fallback하지 않아
@@ -113,7 +138,9 @@ def execute_with_retry(operation: Callable[..., T], *args: Any, cache_provider: 
         if cached is not None:
             return cached
     if mock_provider is not None:
-        return mock_provider(*args, **kwargs)
+        mocked = mock_provider(*args, **kwargs)
+        if mocked is not None:
+            return _preserve_mock_failure_provenance(mocked, last_failure)
     if isinstance(last_failure, Exception):
         raise last_failure
     if last_failure is None:
@@ -121,7 +148,7 @@ def execute_with_retry(operation: Callable[..., T], *args: Any, cache_provider: 
     return last_failure
 
 
-def create_tool_retry_middleware(*, cache_provider: Callable[..., Any | None] | None = None, mock_provider: Callable[..., Any] | None = None) -> Any:
+def create_tool_retry_middleware(*, cache_provider: Callable[..., Any | None] | None = None, mock_provider: Callable[..., Any | None] | None = None) -> Any:
     """Agent 통합 시 provider를 주입할 수 있는 얇은 ``wrap_tool_call`` adapter."""
     @wrap_tool_call
     def retry_tool_call(request: Any, handler: Callable[[Any], Any]) -> Any:

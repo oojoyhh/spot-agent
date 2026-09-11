@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from datetime import date
+from types import SimpleNamespace
 
 import pytest
 from langchain.messages import ToolMessage
@@ -10,6 +12,7 @@ from middleware.middleware import (
     MaxIterationReached,
     SensitiveActionExecutionDenied,
     can_continue_agent_iteration,
+    create_tool_retry_middleware,
     ensure_agent_iteration_available,
     ensure_sensitive_action_approved,
     execute_with_retry,
@@ -17,6 +20,8 @@ from middleware.middleware import (
 )
 from models.schemas import ActionResult, BusinessConditions, ErrorCode, PendingAction, RuntimeContext, ToolResult
 from tools.action_tools import send_analysis_report
+from tools import mock_tools
+from tools.mock_tools import mock_tool_call_provider
 
 
 @dataclass
@@ -57,6 +62,30 @@ def runtime_context(**overrides) -> RuntimeContext:
     values = {"user_id": "user-1", "session_id": "session-1", "user_role": "user"}
     values.update(overrides)
     return RuntimeContext(**values)
+
+
+def mock_request(tool_name: str, args: dict) -> SimpleNamespace:
+    return SimpleNamespace(tool_call={"name": tool_name, "args": args, "id": "mock-call"})
+
+
+def mock_area() -> dict:
+    return {
+        "commercial_area_id": "9307",
+        "administrative_code": "1168010100",
+        "area_name": "역삼역남부 3번출구",
+        "latitude": 37.50012959,
+        "longitude": 127.03529551,
+    }
+
+
+def mock_period() -> dict:
+    return {
+        "start_date": date(2026, 9, 10),
+        "end_date": date(2026, 9, 10),
+        "day_types": ["weekday"],
+        "start_time": "18:00",
+        "end_time": "20:00",
+    }
 
 
 def test_mw_01_timeout_retries_exactly_three_times():
@@ -343,6 +372,150 @@ def test_tool_result_mock_fallback_preserves_provider_contract():
     assert result.error_code is ErrorCode.API_TIMEOUT
     assert result.error_message is not None
     assert (calls, cache_calls, mock_calls) == (3, 1, 1)
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("get_academy_demand", {"area": mock_area(), "period": mock_period(), "school_age": "high"}),
+        ("get_station_exit_traffic", {"station_id": "221", "period": mock_period()}),
+        ("get_visitor_demographics", {"area": mock_area(), "period": mock_period(), "target_age": "20대"}),
+        ("get_district_congestion", {"area": mock_area(), "period": mock_period()}),
+        ("search_competitors", {"area": mock_area(), "radius_m": 500}),
+    ],
+)
+def test_mock_provider_resolves_each_agreed_agent_tool_name(tool_name, args):
+    message = mock_tool_call_provider(mock_request(tool_name, args))
+
+    assert message is not None
+    result = ToolResult.model_validate_json(message.content)
+    assert message.name == tool_name and message.tool_call_id == "mock-call"
+    assert result.success and result.is_mock and result.source == f"mock:{tool_name}"
+
+
+def test_unsupported_mock_tool_name_keeps_original_retryable_failure():
+    calls = mock_calls = 0
+    request = mock_request("typo_get_competitors", {})
+    original = ToolResult(
+        success=False, source="api", data={}, error_code=ErrorCode.API_TIMEOUT,
+        error_message="upstream timeout", is_mock=False,
+    )
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return ToolMessage(content=original.model_dump_json(), tool_call_id="mock-call")
+
+    def provider(provider_request):
+        nonlocal mock_calls
+        mock_calls += 1
+        return mock_tool_call_provider(provider_request)
+
+    result = create_tool_retry_middleware(mock_provider=provider).wrap_tool_call(request, handler)
+    assert ToolResult.model_validate_json(result.content) == original
+    assert (calls, mock_calls) == (3, 1)
+
+
+def test_mock_generation_failure_keeps_original_retryable_failure(monkeypatch):
+    calls = 0
+    request = mock_request(
+        "get_academy_demand",
+        {"area": mock_area(), "period": mock_period(), "school_age": "high"},
+    )
+    original = ToolResult(success=False, source="api", data={}, error_code=ErrorCode.API_TIMEOUT, is_mock=False)
+
+    def unavailable_mock_data():
+        raise OSError("fixture unavailable")
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return ToolMessage(content=original.model_dump_json(), tool_call_id="mock-call")
+
+    monkeypatch.setattr(mock_tools, "_load_mock", unavailable_mock_data)
+    result = create_tool_retry_middleware(mock_provider=mock_tool_call_provider).wrap_tool_call(request, handler)
+    assert ToolResult.model_validate_json(result.content) == original
+    assert calls == 3
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [ErrorCode.API_TIMEOUT, ErrorCode.API_RATE_LIMIT, ErrorCode.API_RESPONSE_ERROR],
+)
+def test_retryable_errors_use_actual_mock_provider_after_three_attempts(error_code):
+    calls = mock_calls = 0
+    request = mock_request(
+        "get_academy_demand",
+        {"area": mock_area(), "period": mock_period(), "school_age": "high"},
+    )
+    original = ToolResult(
+        success=False, source="academy-api", data={}, error_code=error_code,
+        error_message=f"upstream {error_code.value}", is_mock=False,
+    )
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return ToolMessage(content=original.model_dump_json(), tool_call_id="mock-call")
+
+    def provider(provider_request):
+        nonlocal mock_calls
+        mock_calls += 1
+        return mock_tool_call_provider(provider_request)
+
+    message = create_tool_retry_middleware(mock_provider=provider).wrap_tool_call(request, handler)
+    result = ToolResult.model_validate_json(message.content)
+    assert (calls, mock_calls) == (3, 1)
+    assert result.success and result.is_mock and result.source == "mock:get_academy_demand"
+    assert result.error_code is error_code
+    assert result.error_message == f"upstream {error_code.value}"
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [ErrorCode.AREA_NOT_FOUND, ErrorCode.STATION_NOT_FOUND, ErrorCode.NO_DATA, ErrorCode.INVALID_INPUT],
+)
+def test_non_retryable_errors_do_not_call_actual_mock_provider(error_code):
+    calls = mock_calls = 0
+    request = mock_request(
+        "get_academy_demand",
+        {"area": mock_area(), "period": mock_period(), "school_age": "high"},
+    )
+    original = ToolResult(success=False, source="api", data={}, error_code=error_code, is_mock=False)
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return ToolMessage(content=original.model_dump_json(), tool_call_id="mock-call")
+
+    def provider(provider_request):
+        nonlocal mock_calls
+        mock_calls += 1
+        return mock_tool_call_provider(provider_request)
+
+    message = create_tool_retry_middleware(mock_provider=provider).wrap_tool_call(request, handler)
+    assert ToolResult.model_validate_json(message.content) == original
+    assert (calls, mock_calls) == (1, 0)
+
+
+def test_successful_zero_competitor_result_skips_mock_provider():
+    calls = mock_calls = 0
+    request = mock_request("search_competitors", {"area": mock_area(), "radius_m": 500})
+    original = ToolResult(success=True, source="market-api", data={"competitors": []}, is_mock=False)
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return ToolMessage(content=original.model_dump_json(), tool_call_id="mock-call")
+
+    def provider(provider_request):
+        nonlocal mock_calls
+        mock_calls += 1
+        return mock_tool_call_provider(provider_request)
+
+    message = create_tool_retry_middleware(mock_provider=provider).wrap_tool_call(request, handler)
+    assert ToolResult.model_validate_json(message.content) == original
+    assert (calls, mock_calls) == (1, 0)
 
 
 def test_hitl_action_tools_allow_only_approve_or_reject():
