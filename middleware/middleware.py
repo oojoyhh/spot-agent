@@ -112,8 +112,8 @@ def tool_retry_middleware(request: Any, handler: Callable[[Any], Any]) -> Any:
 def build_human_in_the_loop_middleware() -> HumanInTheLoopMiddleware:
     """checkpointer 기반의 승인 전에는 action Tool을 실행하지 않게 구성한다."""
     return HumanInTheLoopMiddleware({
-        "send_analysis_report": {"allowed_decisions": ["approve", "edit", "reject"]},
-        "create_site_visit_event": {"allowed_decisions": ["approve", "edit", "reject"]},
+        "send_analysis_report": {"allowed_decisions": ["approve", "reject"]},
+        "create_site_visit_event": {"allowed_decisions": ["approve", "reject"]},
     })
 
 

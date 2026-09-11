@@ -212,3 +212,13 @@ def test_tool_result_mock_fallback_preserves_provider_contract():
     assert result.error_code is ErrorCode.API_TIMEOUT
     assert result.error_message is not None
     assert (calls, cache_calls, mock_calls) == (3, 1, 1)
+
+
+def test_hitl_action_tools_allow_only_approve_or_reject():
+    from middleware.middleware import build_human_in_the_loop_middleware
+
+    middleware = build_human_in_the_loop_middleware()
+    for tool_name in ("send_analysis_report", "create_site_visit_event"):
+        allowed_decisions = middleware.interrupt_on[tool_name]["allowed_decisions"]
+        assert allowed_decisions == ["approve", "reject"]
+        assert "edit" not in allowed_decisions
