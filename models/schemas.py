@@ -97,7 +97,19 @@ BudgetKRW = Annotated[int, Field(ge=0)]
 
 DayType = Literal["weekday", "weekend", "holiday"]
 
-DIMENSION_KEYS: frozenset[str] = frozenset({"exit_number", "day_type", "time_slot"})
+DIMENSION_KEYS: frozenset[str] = frozenset(
+    {
+        "exit_number",
+        "day_type",
+        "time_slot",
+        "academy_id",
+        "academy_name",
+        "category",
+        "school_age",
+        "gender",
+        "age_group",
+    }
+)
 """MetricObservation.dimensions에 쓸 수 있는 key. 새 key는 Github Issue나 Slack으로 요청하시면 추가하겠습니다.
 
 | key         | 값 형식                                  | 예시            |
@@ -105,6 +117,12 @@ DIMENSION_KEYS: frozenset[str] = frozenset({"exit_number", "day_type", "time_slo
 | exit_number | 출구 번호 문자열                         | "3", "3-1"      |
 | day_type    | period.day_types에 포함된 DayType 값     | "weekday"       |
 | time_slot   | "HH:MM-HH:MM" (자정 통과 허용, 시작≠종료) | "18:00-22:00"   |
+| academy_id  | SK 학원 ID                               | "473863"        |
+| academy_name| 학원명                                   | "강남대성학원"  |
+| category    | 학원 분류                                | "입시/고시"     |
+| school_age  | 학원 API 학령                            | "고등학생"      |
+| gender      | 방문자 성별 코드                         | "female"        |
+| age_group   | 방문자 연령대 코드                       | "20"            |
 """
 
 _TIME_SLOT_PATTERN = re.compile(rf"^({_HHMM})-({_HHMM})$")

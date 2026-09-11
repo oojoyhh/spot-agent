@@ -1,0 +1,52 @@
+{
+  "metadata": {
+    "scope": "StudySpot MVP에서 실응답으로 확인한 역삼역 인접 상권",
+    "verified_at": "2026-09-11",
+    "commercial_area_source": "SK Open API 데이터 제공 가능 상권",
+    "coordinate_source": "TMAP 장소 통합 검색의 정확히 일치하는 지하철 출구 POI",
+    "coordinate_semantics": "상권 중심점이 아니라 상권명에 명시된 지하철 출구 기준점",
+    "administrative_code_source": "출구 POI의 서울 강남구 역삼동 주소와 TMAP Geocoding으로 확인한 법정동 코드"
+  },
+  "areas": [
+    {
+      "area": {
+        "commercial_area_id": "9307",
+        "administrative_code": "1168010100",
+        "area_name": "역삼역남부 3번출구",
+        "latitude": 37.50012959,
+        "longitude": 127.03529551
+      },
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    },
+    {
+      "area": {
+        "commercial_area_id": "9368",
+        "administrative_code": "1168010100",
+        "area_name": "역삼역북부 4번출구",
+        "latitude": 37.50043511,
+        "longitude": 127.03512885
+      },
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    },
+    {
+      "area": {
+        "commercial_area_id": "9310",
+        "administrative_code": "1168010100",
+        "area_name": "역삼역북부 7번출구",
+        "latitude": 37.50110173,
+        "longitude": 127.03693422
+      },
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    },
+    {
+      "area": {
+        "commercial_area_id": "9308",
+        "administrative_code": "1168010100",
+        "area_name": "역삼역남부 1번출구",
+        "latitude": 37.50046292,
+        "longitude": 127.03721199
+      },
+      "aliases": ["서울", "강남구", "역삼동", "역삼역"]
+    }
+  ]
+}

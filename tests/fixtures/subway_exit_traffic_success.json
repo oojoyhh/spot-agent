@@ -1,0 +1,31 @@
+{
+  "status": {
+    "code": "00",
+    "message": "success",
+    "totalCount": 1
+  },
+  "contents": {
+    "subwayLine": "2호선",
+    "stationName": "역삼역",
+    "stationCode": "221",
+    "gender": "all",
+    "ageGrp": "all",
+    "raw": [
+      {
+        "exit": "1",
+        "userCount": 15,
+        "datetime": "20260910050000"
+      },
+      {
+        "exit": "1",
+        "userCount": 126,
+        "datetime": "20260910060000"
+      },
+      {
+        "exit": "2",
+        "userCount": 0,
+        "datetime": "20260910050000"
+      }
+    ]
+  }
+}
