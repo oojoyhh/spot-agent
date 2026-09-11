@@ -89,8 +89,9 @@ def input_guardrail(state: dict[str, Any], runtime: Any) -> dict[str, Any] | Non
         return None
     if decision.reason == DETAILED_ADDRESS:
         message = (
-            "상세 주소는 개인정보 보호를 위해 채팅 분석 입력으로 사용하지 않습니다. "
-            "상권 분석을 원하시면 왼쪽 분석 조건 입력폼에서 구·동·역·상권 단위의 희망 지역을 입력해 주세요."
+            "상세 주소는 개인정보 보호를 위해 분석에 사용하지 않습니다. "
+            "구·동·역·상권 단위의 희망 지역을 입력해 주세요. "
+            "왼쪽 분석 조건 입력폼이나 채팅에서 모두 입력할 수 있습니다."
         )
     else:
         message = f"요청이 안전 정책에 의해 차단되었습니다. ({decision.reason})"

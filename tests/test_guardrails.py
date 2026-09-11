@@ -75,4 +75,6 @@ def test_detailed_address_ends_agent_without_echoing_input():
     message = outcome["messages"][0].content
     assert outcome["jump_to"] == "end"
     assert "구·동·역·상권" in message
+    assert "채팅" in message
+    assert DETAILED_ADDRESS not in message
     assert text not in message
