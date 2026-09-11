@@ -5,10 +5,8 @@
 
 두 Tool은 서버에서 검증된 사용자 승인 이후에만 실행한다.
 
-현재 MVP 범위:
-- ``send_analysis_report``는 외부 전송 없이 Streamlit에 표시할 Mock 실행
-  결과만 반환한다.
-- ``create_site_visit_event``는 구현하지 않으며 Agent에 등록하지 않는다.
+현재 MVP 범위에서 두 Tool 모두 외부 서비스에 쓰지 않고 Streamlit에 표시할
+``simulated`` Mock 결과만 반환한다.
 """
 
 from __future__ import annotations
@@ -19,6 +17,7 @@ __all__ = ["create_site_visit_event", "send_analysis_report"]
 
 
 _REPORT_SOURCE = "StudySpot Mock - analysis report"
+_CALENDAR_SOURCE = "StudySpot Mock - site visit event"
 
 
 def _failure(error_code: ErrorCode, message: str) -> ToolResult:
@@ -63,9 +62,47 @@ def send_analysis_report(approved_action: PendingAction) -> ToolResult:
 
 
 def create_site_visit_event(approved_action: PendingAction) -> ToolResult:
-    """MVP 구현 제외: 현장답사 일정 Tool은 Agent에 등록하지 않는다.
+    """승인된 일정 action을 실제 등록 없이 Mock 결과로 반환한다."""
+    if not isinstance(approved_action, PendingAction):
+        return ToolResult(
+            success=False,
+            source=_CALENDAR_SOURCE,
+            data={},
+            error_code=ErrorCode.INVALID_INPUT,
+            error_message="승인된 서버 측 action이 필요합니다.",
+            is_mock=False,
+        )
+    if approved_action.action_type != "create_site_visit":
+        return ToolResult(
+            success=False,
+            source=_CALENDAR_SOURCE,
+            data={},
+            error_code=ErrorCode.INVALID_INPUT,
+            error_message="현장답사 일정 action이 아닙니다.",
+            is_mock=False,
+        )
+    if approved_action.status != "approved":
+        return ToolResult(
+            success=False,
+            source=_CALENDAR_SOURCE,
+            data={},
+            error_code=ErrorCode.INVALID_INPUT,
+            error_message="승인 완료된 action만 처리할 수 있습니다.",
+            is_mock=False,
+        )
 
-    ``pass``로 암묵적인 ``None``을 반환하면 공통 ToolResult 계약을 위반하므로,
-    실수로 호출될 경우 명시적인 미구현 오류를 발생시킨다.
-    """
-    raise NotImplementedError("create_site_visit_event는 현재 MVP 구현 범위에서 제외되었습니다.")
+    action_result = ActionResult(
+        action_id=approved_action.action_id,
+        action_type="create_site_visit",
+        status="simulated",
+        message="Mock 실행: 실제 현장답사 일정은 등록되지 않았습니다.",
+        is_mock=True,
+    )
+    return ToolResult(
+        success=True,
+        source=_CALENDAR_SOURCE,
+        data=action_result.model_dump(mode="json"),
+        error_code=None,
+        error_message=None,
+        is_mock=True,
+    )
