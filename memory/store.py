@@ -20,11 +20,12 @@ from typing import Any
 from langchain.tools import ToolRuntime, tool
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from models.schemas import (
     ErrorCode,
     RuntimeContext,
+    ScoreName,
     ToolResult,
     UserPreferences,
 )
@@ -34,19 +35,44 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Tool 입력 스키마
+# ---------------------------------------------------------------------------
+
+class PreferenceUpdate(BaseModel):
+    """save_user_preferences Tool의 입력 스키마.
+
+    OpenAI strict Tool schema와 호환되도록 저장 가능한 필드를
+    명시적으로 선언한다.
+
+    값이 None이면 해당 선호는 이번 저장 요청에서 변경하지 않는다.
+    user_id는 Tool 입력으로 받지 않고 RuntimeContext에서 가져온다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    preferred_regions: list[str] | None = None
+    deposit_budget: int | None = Field(default=None, ge=0)
+    monthly_rent_budget: int | None = Field(default=None, ge=0)
+    target_age: str | None = None
+    priority_metrics: list[ScoreName] | None = None
+
+
+# ---------------------------------------------------------------------------
 # Store 설정
 # ---------------------------------------------------------------------------
 
 # MVP용 InMemory Store.
-# 프로세스가 재시작되면 저장 데이터가 사라진다.
+# Python/Streamlit 프로세스가 재시작되면 저장 데이터는 초기화된다.
 memory_store = InMemoryStore()
 
-# 동일 프로세스 안에서 get → 수정 → put이 겹쳐 갱신값이 유실되는 것을 줄인다.
-# 실제 운영 DB에서는 트랜잭션/원자적 갱신으로 대체해야 한다.
+# 동일 프로세스 안에서 get → 수정 → put이 동시에 수행될 때
+# 갱신값이 유실되는 것을 줄이기 위한 간단한 Lock.
+# 운영 환경에서는 DB 트랜잭션 등으로 대체한다.
 _store_lock = RLock()
 
 _PREFERENCE_KEY = "preferences"
 
+# Long-term Memory에 저장할 수 있는 사용자 선호 필드.
 _ALLOWED_PREFERENCE_FIELDS = {
     "preferred_regions",
     "deposit_budget",
@@ -60,6 +86,10 @@ class MemoryStoreError(RuntimeError):
     """장기 Memory 저장소 접근 또는 저장 데이터 검증 실패."""
 
 
+# ---------------------------------------------------------------------------
+# Namespace / Store 공통 처리
+# ---------------------------------------------------------------------------
+
 def _namespace(context: RuntimeContext) -> tuple[str, ...]:
     """사용자별 Store namespace를 만든다."""
 
@@ -71,11 +101,23 @@ def _namespace(context: RuntimeContext) -> tuple[str, ...]:
 
 
 def _resolve_store(store: BaseStore | None) -> BaseStore:
+    """외부 Store가 없으면 기본 InMemoryStore를 사용한다."""
+
     return store if store is not None else memory_store
 
 
+def _empty_preferences(
+    context: RuntimeContext,
+) -> UserPreferences:
+    """아직 장기 선호가 없는 사용자의 빈 선호 모델을 만든다."""
+
+    return UserPreferences(
+        user_id=context.user_id,
+    )
+
+
 # ---------------------------------------------------------------------------
-# 내부 조회
+# 사용자 선호 조회
 # ---------------------------------------------------------------------------
 
 def load_user_preferences(
@@ -85,11 +127,16 @@ def load_user_preferences(
     """사용자의 장기 선호를 조회한다.
 
     Returns:
-        UserPreferences: 저장된 선호가 존재함
-        None: 정상 조회됐지만 저장된 선호가 없음
+        UserPreferences:
+            저장된 사용자 선호가 존재하는 경우.
+
+        None:
+            Store 조회는 정상적으로 수행됐지만
+            아직 저장된 사용자 선호가 없는 경우.
 
     Raises:
-        MemoryStoreError: Store 장애 또는 저장 데이터가 잘못된 경우
+        MemoryStoreError:
+            Store 접근 실패 또는 저장 데이터 검증 실패.
     """
 
     selected_store = _resolve_store(store)
@@ -99,27 +146,40 @@ def load_user_preferences(
             _namespace(context),
             _PREFERENCE_KEY,
         )
+
     except Exception as exc:
-        logger.exception("[MEMORY] 사용자 선호 조회 실패")
+        logger.exception(
+            "[MEMORY] 사용자 선호 조회 실패"
+        )
         raise MemoryStoreError(
             "사용자 선호 저장소 조회에 실패했습니다."
         ) from exc
 
     if item is None:
-        logger.debug("[MEMORY] 저장된 사용자 선호 없음")
+        logger.debug(
+            "[MEMORY] 저장된 사용자 선호 없음"
+        )
         return None
 
     try:
-        preferences = UserPreferences.model_validate(item.value)
+        preferences = UserPreferences.model_validate(
+            item.value
+        )
+
     except (ValidationError, TypeError, ValueError) as exc:
-        logger.exception("[MEMORY] 저장 데이터 검증 실패")
+        logger.exception(
+            "[MEMORY] 저장 데이터 검증 실패"
+        )
         raise MemoryStoreError(
             "저장된 사용자 선호 데이터가 올바르지 않습니다."
         ) from exc
 
-    # namespace와 저장 모델의 user_id가 어긋난 데이터는 사용하지 않는다.
+    # namespace의 user_id와 저장된 데이터의 user_id가
+    # 다르면 다른 사용자의 Memory일 가능성이 있으므로 사용하지 않는다.
     if preferences.user_id != context.user_id:
-        logger.error("[MEMORY] 사용자 namespace 불일치")
+        logger.error(
+            "[MEMORY] 사용자 namespace 불일치"
+        )
         raise MemoryStoreError(
             "저장된 사용자 정보의 소유자를 확인할 수 없습니다."
         )
@@ -127,16 +187,8 @@ def load_user_preferences(
     return preferences
 
 
-def _empty_preferences(context: RuntimeContext) -> UserPreferences:
-    """아직 장기 선호가 없는 사용자의 빈 모델을 만든다."""
-
-    return UserPreferences(
-        user_id=context.user_id,
-    )
-
-
 # ---------------------------------------------------------------------------
-# 선호 저장 내부 함수
+# 사용자 선호 저장 내부 로직
 # ---------------------------------------------------------------------------
 
 def save_user_preferences_data(
@@ -144,7 +196,11 @@ def save_user_preferences_data(
     context: RuntimeContext,
     store: BaseStore | None = None,
 ) -> ToolResult:
-    """허용된 사용자 선호만 병합 저장한다."""
+    """허용된 사용자 선호를 기존 장기 Memory와 병합 저장한다.
+
+    이 함수는 Agent Tool의 내부 저장 로직이다.
+    외부 Tool 인터페이스에서는 PreferenceUpdate 모델을 사용한다.
+    """
 
     selected_store = _resolve_store(store)
 
@@ -158,7 +214,10 @@ def save_user_preferences_data(
             is_mock=False,
         )
 
-    unknown_fields = set(preferences) - _ALLOWED_PREFERENCE_FIELDS
+    unknown_fields = (
+        set(preferences)
+        - _ALLOWED_PREFERENCE_FIELDS
+    )
 
     if unknown_fields:
         return ToolResult(
@@ -166,28 +225,35 @@ def save_user_preferences_data(
             source="memory_store",
             data={},
             error_code=ErrorCode.INVALID_INPUT,
-            error_message="저장할 수 없는 사용자 선호 필드가 포함되어 있습니다.",
+            error_message=(
+                "저장할 수 없는 사용자 선호 필드가 포함되어 있습니다."
+            ),
             is_mock=False,
         )
 
     try:
         with _store_lock:
             current = (
-                load_user_preferences(context, selected_store)
+                load_user_preferences(
+                    context,
+                    selected_store,
+                )
                 or _empty_preferences(context)
             )
 
             merged = current.model_dump()
 
-            # dict에 실제 포함된 필드만 수정한다.
-            # deposit_budget=None 등은 명시적 초기화로 처리할 수 있다.
+            # 이번 요청에서 실제 저장할 값만 기존 선호에 덮어쓴다.
             for field_name, value in preferences.items():
                 merged[field_name] = value
 
-            # user_id는 항상 신뢰 가능한 RuntimeContext의 값을 사용한다.
+            # user_id는 LLM 입력을 신뢰하지 않고
+            # RuntimeContext 값으로 항상 고정한다.
             merged["user_id"] = context.user_id
 
-            updated = UserPreferences.model_validate(merged)
+            updated = UserPreferences.model_validate(
+                merged
+            )
 
             selected_store.put(
                 _namespace(context),
@@ -195,27 +261,40 @@ def save_user_preferences_data(
                 updated.model_dump(mode="json"),
             )
 
-    except (MemoryStoreError, ValidationError, TypeError, ValueError):
-        logger.exception("[MEMORY] 사용자 선호 저장 실패")
+    except (
+        MemoryStoreError,
+        ValidationError,
+        TypeError,
+        ValueError,
+    ):
+        logger.exception(
+            "[MEMORY] 사용자 선호 저장 실패"
+        )
 
         return ToolResult(
             success=False,
             source="memory_store",
             data={},
             error_code=ErrorCode.TOOL_INTERNAL_ERROR,
-            error_message="사용자 선호를 저장하지 못했습니다.",
+            error_message=(
+                "사용자 선호를 저장하지 못했습니다."
+            ),
             is_mock=False,
         )
 
     except Exception:
-        logger.exception("[MEMORY] 사용자 선호 저장소 오류")
+        logger.exception(
+            "[MEMORY] 사용자 선호 저장소 오류"
+        )
 
         return ToolResult(
             success=False,
             source="memory_store",
             data={},
             error_code=ErrorCode.TOOL_INTERNAL_ERROR,
-            error_message="사용자 선호 저장 중 오류가 발생했습니다.",
+            error_message=(
+                "사용자 선호 저장 중 오류가 발생했습니다."
+            ),
             is_mock=False,
         )
 
@@ -237,7 +316,7 @@ def save_user_preferences_data(
 
 
 # ---------------------------------------------------------------------------
-# 관심 상권 저장 내부 함수
+# 관심 상권 저장 내부 로직
 # ---------------------------------------------------------------------------
 
 def save_shortlist_data(
@@ -262,13 +341,20 @@ def save_shortlist_data(
     try:
         with _store_lock:
             current = (
-                load_user_preferences(context, selected_store)
+                load_user_preferences(
+                    context,
+                    selected_store,
+                )
                 or _empty_preferences(context)
             )
 
-            # 입력 순서는 유지하면서 중복 ID를 제거한다.
-            requested_ids = list(dict.fromkeys(commercial_area_ids))
+            # 이번 요청 안의 중복 제거.
+            # 순서는 사용자가 전달한 순서를 유지한다.
+            requested_ids = list(
+                dict.fromkeys(commercial_area_ids)
+            )
 
+            # 기존 관심 상권과 합치면서 다시 중복 제거.
             all_ids = list(
                 dict.fromkeys(
                     [
@@ -284,7 +370,8 @@ def save_shortlist_data(
                 }
             )
 
-            # model_copy는 update 값을 재검증하지 않으므로 최종 검증을 다시 수행한다.
+            # model_copy(update=...)는 update 값을 재검증하지 않으므로
+            # 최종적으로 UserPreferences 검증을 한 번 더 수행한다.
             updated = UserPreferences.model_validate(
                 updated.model_dump()
             )
@@ -295,27 +382,40 @@ def save_shortlist_data(
                 updated.model_dump(mode="json"),
             )
 
-    except (MemoryStoreError, ValidationError, TypeError, ValueError):
-        logger.exception("[MEMORY] 관심 상권 저장 실패")
+    except (
+        MemoryStoreError,
+        ValidationError,
+        TypeError,
+        ValueError,
+    ):
+        logger.exception(
+            "[MEMORY] 관심 상권 저장 실패"
+        )
 
         return ToolResult(
             success=False,
             source="memory_store",
             data={},
             error_code=ErrorCode.TOOL_INTERNAL_ERROR,
-            error_message="관심 상권을 저장하지 못했습니다.",
+            error_message=(
+                "관심 상권을 저장하지 못했습니다."
+            ),
             is_mock=False,
         )
 
     except Exception:
-        logger.exception("[MEMORY] 관심 상권 저장소 오류")
+        logger.exception(
+            "[MEMORY] 관심 상권 저장소 오류"
+        )
 
         return ToolResult(
             success=False,
             source="memory_store",
             data={},
             error_code=ErrorCode.TOOL_INTERNAL_ERROR,
-            error_message="관심 상권 저장 중 오류가 발생했습니다.",
+            error_message=(
+                "관심 상권 저장 중 오류가 발생했습니다."
+            ),
             is_mock=False,
         )
 
@@ -342,16 +442,20 @@ def save_shortlist_data(
 
 @tool
 def save_user_preferences(
-    preferences: dict[str, Any],
+    preferences: PreferenceUpdate,
     runtime: ToolRuntime[RuntimeContext],
 ) -> ToolResult:
     """사용자가 명시적으로 기억을 요청한 선호를 장기 Memory에 저장한다.
 
-    저장 가능 필드:
-    preferred_regions, deposit_budget, monthly_rent_budget,
-    target_age, priority_metrics.
+    저장 가능한 항목:
+    - preferred_regions
+    - deposit_budget
+    - monthly_rent_budget
+    - target_age
+    - priority_metrics
 
-    user_id는 RuntimeContext에서만 가져온다.
+    user_id는 Tool 입력으로 받지 않고
+    RuntimeContext에서만 가져온다.
     """
 
     if runtime.store is None:
@@ -360,12 +464,20 @@ def save_user_preferences(
             source="memory_store",
             data={},
             error_code=ErrorCode.TOOL_INTERNAL_ERROR,
-            error_message="장기 Memory Store가 연결되지 않았습니다.",
+            error_message=(
+                "장기 Memory Store가 연결되지 않았습니다."
+            ),
             is_mock=False,
         )
 
+    # OpenAI strict Tool schema에서는 nullable 필드가
+    # None으로 전달될 수 있으므로 실제 값이 있는 필드만 저장한다.
+    preference_data = preferences.model_dump(
+        exclude_none=True
+    )
+
     return save_user_preferences_data(
-        preferences=preferences,
+        preferences=preference_data,
         context=runtime.context,
         store=runtime.store,
     )
@@ -388,7 +500,9 @@ def save_shortlist(
             source="memory_store",
             data={},
             error_code=ErrorCode.TOOL_INTERNAL_ERROR,
-            error_message="장기 Memory Store가 연결되지 않았습니다.",
+            error_message=(
+                "장기 Memory Store가 연결되지 않았습니다."
+            ),
             is_mock=False,
         )
 
