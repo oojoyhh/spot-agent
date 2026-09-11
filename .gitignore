@@ -1,5 +1,13 @@
+# 비밀값
 .env
-.venv/
+.streamlit/secrets.toml
+
+# Python
 __pycache__/
 *.pyc
-.streamlit/secrets.toml
+.venv/
+venv/
+.pytest_cache/
+
+# OS
+.DS_Store
