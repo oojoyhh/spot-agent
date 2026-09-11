@@ -1,356 +1,381 @@
-"""지하철역 및 출구 통행량 API Tool.
+"""StudySpot 지하철 API Tool.
 
-담당: 역할 1 · 중우 · feature/api-tools
-명세: docs/00_공통계약.md, docs/01_API_Tool.md
-
-공통 Pydantic 모델이 합쳐지기 전에도 검증할 수 있도록 SK Open API 요청과
-원천 응답 파싱은 공통 모델에 의존하지 않는 내부 함수로 분리한다.
+재시도와 Mock fallback은 Middleware가 담당하며, 이 모듈은 호출당 외부 요청을
+한 번만 수행한다.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
-from datetime import datetime
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
+from models.schemas import (
+    AnalysisPeriod,
+    ErrorCode,
+    MetricObservation,
+    NearbyStation,
+    StationTrafficData,
+    ToolResult,
+)
+
 __all__ = ["find_nearby_stations", "get_station_exit_traffic"]
 
-_EXIT_TRAFFIC_ENDPOINT = (
-    "https://apis.openapi.sk.com/puzzle/subway/exit/raw/hourly/stations"
-)
-_STATION_ID_PATTERN = re.compile(r"^[0-9]{3}(?:-(?:[0-9]|R))?$")
-_SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
+_SOURCE = "SK Open API - 시간대별 지하철역 출구 통행자 수"
+_STATION_SOURCE = "SK Open API 역 코드 + 서울시 역사마스터 좌표"
+_EXIT_TRAFFIC_ENDPOINT = "https://apis.openapi.sk.com/puzzle/subway/exit/raw/hourly/stations"
+_STATION_REFERENCE_PATH = Path(__file__).resolve().parents[1] / "data/reference/subway_stations.json"
+_STATION_ID_PATTERN = re.compile(r"^[A-Z]?[0-9]{2,3}(?:-(?:[0-9]|R))?$")
+_EARTH_RADIUS_M = 6_371_000
 
 
 class SubwayApiError(Exception):
-    """지하철 API 요청·응답 처리 중 발생한 기본 오류."""
+    """공통 오류 코드로 변환할 수 있는 지하철 API 오류."""
 
-    def __init__(self, message: str, *, error_code: str) -> None:
+    def __init__(self, message: str, error_code: ErrorCode) -> None:
         super().__init__(message)
         self.error_code = error_code
 
 
 class SubwayInputError(SubwayApiError):
-    """외부 요청 전에 발견한 잘못된 입력."""
+    pass
 
 
 class SubwayAuthError(SubwayApiError):
-    """API Key 누락 또는 인증·권한 오류."""
+    pass
 
 
 class SubwayRateLimitError(SubwayApiError):
-    """호출 한도 초과 오류."""
+    pass
 
 
 class SubwayTimeoutError(SubwayApiError):
-    """외부 API timeout 오류."""
+    pass
 
 
 class SubwayUpstreamError(SubwayApiError):
-    """SK Open API 서버 또는 비정상 상태 응답 오류."""
+    pass
 
 
 class SubwayResponseError(SubwayApiError):
-    """JSON 파싱 또는 응답 스키마 오류."""
+    pass
 
 
 def _validate_station_id(station_id: str) -> str:
-    """공식 문서의 본선·지선·순환선 역 코드 형식을 검증한다."""
     if not isinstance(station_id, str):
-        raise SubwayInputError(
-            "station_id must be a string",
-            error_code="INVALID_INPUT",
-        )
-
-    normalized = station_id.strip()
-    if not _STATION_ID_PATTERN.fullmatch(normalized):
-        raise SubwayInputError(
-            "station_id must be a three-digit station code with an optional branch suffix",
-            error_code="INVALID_INPUT",
-        )
-    return normalized
+        raise SubwayInputError("station_id는 문자열이어야 합니다.", ErrorCode.INVALID_INPUT)
+    station_id = station_id.strip()
+    if not _STATION_ID_PATTERN.fullmatch(station_id):
+        raise SubwayInputError("station_id 형식이 올바르지 않습니다.", ErrorCode.INVALID_INPUT)
+    return station_id
 
 
-def _validate_query_date(date: str) -> str:
-    """API의 ``latest`` 또는 ``YYYYMMDD`` 날짜 형식을 검증한다."""
-    if not isinstance(date, str):
-        raise SubwayInputError(
-            "date must be a string",
-            error_code="INVALID_INPUT",
-        )
-
-    normalized = date.strip()
-    if normalized == "latest":
-        return normalized
-
+def _validate_query_date(query_date: str) -> str:
+    if query_date == "latest":
+        return query_date
     try:
-        datetime.strptime(normalized, "%Y%m%d")
-    except ValueError as exc:
-        raise SubwayInputError(
-            "date must be 'latest' or a valid YYYYMMDD value",
-            error_code="INVALID_INPUT",
-        ) from exc
-    return normalized
+        datetime.strptime(query_date, "%Y%m%d")
+    except (TypeError, ValueError) as exc:
+        raise SubwayInputError("조회일은 YYYYMMDD 형식이어야 합니다.", ErrorCode.INVALID_INPUT) from exc
+    return query_date
 
 
 def _get_api_key() -> str:
-    """환경변수에서 API Key를 읽되 오류 메시지에는 값을 포함하지 않는다."""
     load_dotenv()
     api_key = os.getenv("SK_OPEN_API_KEY")
     if not api_key:
-        raise SubwayAuthError(
-            "SK_OPEN_API_KEY is not configured",
-            error_code="AUTH_ERROR",
-        )
+        raise SubwayAuthError("SK_OPEN_API_KEY가 설정되지 않았습니다.", ErrorCode.API_AUTH_ERROR)
     return api_key
 
 
 def _raise_for_http_error(error: HTTPError) -> None:
-    """HTTP 상태를 공통 오류로 변환할 수 있는 내부 예외로 분류한다."""
     if error.code in {401, 403}:
-        raise SubwayAuthError(
-            "SK Open API authentication or product permission failed",
-            error_code="AUTH_ERROR",
-        ) from error
+        raise SubwayAuthError("API 인증 또는 상품 권한을 확인해 주세요.", ErrorCode.API_AUTH_ERROR) from error
     if error.code == 429:
-        raise SubwayRateLimitError(
-            "SK Open API rate limit exceeded",
-            error_code="RATE_LIMITED",
-        ) from error
-    raise SubwayUpstreamError(
-        f"SK Open API returned HTTP {error.code}",
-        error_code="UPSTREAM_ERROR",
-    ) from error
+        raise SubwayRateLimitError("API 호출 한도를 초과했습니다.", ErrorCode.API_RATE_LIMIT) from error
+    if error.code == 400:
+        raise SubwayInputError("API 요청 파라미터가 올바르지 않습니다.", ErrorCode.API_BAD_REQUEST) from error
+    if error.code == 404:
+        raise SubwayInputError("해당 역을 찾을 수 없습니다.", ErrorCode.STATION_NOT_FOUND) from error
+    raise SubwayUpstreamError("SK Open API 호출에 실패했습니다.", ErrorCode.API_RESPONSE_ERROR) from error
 
 
 def _fetch_station_exit_traffic(
     station_id: str,
-    date: str,
+    query_date: str,
     *,
     timeout: float = 10.0,
     api_key: str | None = None,
     opener: Callable[..., Any] = urlopen,
 ) -> dict[str, Any]:
-    """SK Open API를 한 번 호출해 원천 JSON 객체를 반환한다.
-
-    재시도는 Guardrail·Middleware 담당이므로 이 함수에서는 수행하지 않는다.
-    ``opener``와 ``api_key`` 인자는 네트워크 없는 단위 테스트를 위한 주입점이다.
-    """
-    normalized_station_id = _validate_station_id(station_id)
-    normalized_date = _validate_query_date(date)
+    """출구 통행량 원천 JSON을 한 번 조회한다."""
+    station_id = _validate_station_id(station_id)
+    query_date = _validate_query_date(query_date)
     if timeout <= 0:
-        raise SubwayInputError(
-            "timeout must be greater than zero",
-            error_code="INVALID_INPUT",
-        )
+        raise SubwayInputError("timeout은 0보다 커야 합니다.", ErrorCode.INVALID_INPUT)
 
-    query = urlencode(
-        {
-            "gender": "all",
-            "ageGrp": "all",
-            "date": normalized_date,
-        }
-    )
-    url = f"{_EXIT_TRAFFIC_ENDPOINT}/{normalized_station_id}?{query}"
+    query = urlencode({"gender": "all", "ageGrp": "all", "date": query_date})
     request = Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "appKey": api_key or _get_api_key(),
-        },
+        f"{_EXIT_TRAFFIC_ENDPOINT}/{station_id}?{query}",
+        headers={"Accept": "application/json", "appKey": api_key or _get_api_key()},
         method="GET",
     )
-
     try:
         with opener(request, timeout=timeout) as response:
             body = response.read()
     except HTTPError as exc:
         _raise_for_http_error(exc)
-    except TimeoutError as exc:
-        raise SubwayTimeoutError(
-            "SK Open API request timed out",
-            error_code="TIMEOUT",
-        ) from exc
-    except URLError as exc:
-        if isinstance(exc.reason, TimeoutError):
-            raise SubwayTimeoutError(
-                "SK Open API request timed out",
-                error_code="TIMEOUT",
-            ) from exc
-        raise SubwayUpstreamError(
-            "SK Open API request failed",
-            error_code="UPSTREAM_ERROR",
-        ) from exc
+    except (TimeoutError, URLError) as exc:
+        if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+            raise SubwayTimeoutError("API 요청 시간이 초과되었습니다.", ErrorCode.API_TIMEOUT) from exc
+        raise SubwayUpstreamError("SK Open API에 연결할 수 없습니다.", ErrorCode.API_RESPONSE_ERROR) from exc
 
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SubwayResponseError(
-            "SK Open API response is not valid UTF-8 JSON",
-            error_code="INVALID_RESPONSE",
-        ) from exc
-
+        raise SubwayResponseError("API 응답이 올바른 JSON이 아닙니다.", ErrorCode.API_RESPONSE_ERROR) from exc
     if not isinstance(payload, dict):
-        raise SubwayResponseError(
-            "SK Open API response root must be an object",
-            error_code="INVALID_RESPONSE",
-        )
+        raise SubwayResponseError("API 응답 최상위 값이 객체가 아닙니다.", ErrorCode.API_RESPONSE_ERROR)
     return payload
 
 
 def _required_string(container: dict[str, Any], field: str) -> str:
     value = container.get(field)
-    if not isinstance(value, str) or not value:
-        raise SubwayResponseError(
-            f"response field '{field}' must be a non-empty string",
-            error_code="INVALID_RESPONSE",
-        )
+    if not isinstance(value, str) or not value.strip():
+        raise SubwayResponseError(f"응답의 {field} 값이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR)
     return value
+
+
+def _day_type(observed_at: datetime) -> str:
+    return "weekend" if observed_at.weekday() >= 5 else "weekday"
+
+
+def _is_in_requested_time(observed_at: datetime, period: AnalysisPeriod) -> bool:
+    if period.start_time is None:
+        return True
+    current = observed_at.strftime("%H:%M")
+    if period.start_time < period.end_time:
+        return period.start_time <= current < period.end_time
+    return current >= period.start_time or current < period.end_time
 
 
 def _parse_station_exit_traffic(
     payload: dict[str, Any],
     expected_station_id: str,
+    period: AnalysisPeriod | None = None,
 ) -> dict[str, Any]:
-    """원천 응답을 공통 모델 직전의 중간 자료구조로 정규화한다."""
-    normalized_station_id = _validate_station_id(expected_station_id)
-    if not isinstance(payload, dict):
-        raise SubwayResponseError(
-            "response root must be an object",
-            error_code="INVALID_RESPONSE",
-        )
-
+    """원천 응답을 ``StationTrafficData`` 입력 형식으로 정규화한다."""
+    station_id = _validate_station_id(expected_station_id)
     status = payload.get("status")
     if not isinstance(status, dict):
-        raise SubwayResponseError(
-            "response field 'status' must be an object",
-            error_code="INVALID_RESPONSE",
-        )
-    status_code = status.get("code")
-    if status_code != "00":
-        upstream_code = status_code if isinstance(status_code, str) else "UNKNOWN"
-        raise SubwayUpstreamError(
-            f"SK Open API returned failure status '{upstream_code}'",
-            error_code=upstream_code,
-        )
+        raise SubwayResponseError("응답에 status 객체가 없습니다.", ErrorCode.API_RESPONSE_ERROR)
+    if status.get("code") != "00":
+        code = ErrorCode.NO_DATA if status.get("code") == "NO_DATA" else ErrorCode.API_RESPONSE_ERROR
+        raise SubwayUpstreamError("SK Open API가 실패 상태를 반환했습니다.", code)
 
     contents = payload.get("contents")
     if not isinstance(contents, dict):
-        raise SubwayResponseError(
-            "response field 'contents' must be an object",
-            error_code="INVALID_RESPONSE",
-        )
+        raise SubwayResponseError("응답에 contents 객체가 없습니다.", ErrorCode.API_RESPONSE_ERROR)
+    if _required_string(contents, "stationCode") != station_id:
+        raise SubwayResponseError("응답의 역 코드가 요청과 다릅니다.", ErrorCode.API_RESPONSE_ERROR)
+    if _required_string(contents, "gender") != "all" or _required_string(contents, "ageGrp") != "all":
+        raise SubwayResponseError("응답의 성별·연령 조건이 요청과 다릅니다.", ErrorCode.API_RESPONSE_ERROR)
 
-    station_code = _required_string(contents, "stationCode")
-    if station_code != normalized_station_id:
-        raise SubwayResponseError(
-            "response stationCode does not match the requested station_id",
-            error_code="INVALID_RESPONSE",
-        )
-
-    station_name = _required_string(contents, "stationName")
-    subway_line = _required_string(contents, "subwayLine")
-    gender = _required_string(contents, "gender")
-    age_group = _required_string(contents, "ageGrp")
     raw = contents.get("raw")
     if not isinstance(raw, list):
-        raise SubwayResponseError(
-            "response field 'raw' must be an array",
-            error_code="INVALID_RESPONSE",
-        )
+        raise SubwayResponseError("응답의 raw 값이 배열이 아닙니다.", ErrorCode.API_RESPONSE_ERROR)
 
     observations: list[dict[str, Any]] = []
+    seen: dict[tuple[str, str], int] = {}
     for index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise SubwayResponseError(
-                f"raw[{index}] must be an object",
-                error_code="INVALID_RESPONSE",
-            )
-
-        exit_number = _required_string(item, "exit")
-        user_count = item.get("userCount")
-        if isinstance(user_count, bool) or not isinstance(user_count, int):
-            raise SubwayResponseError(
-                f"raw[{index}].userCount must be an integer",
-                error_code="INVALID_RESPONSE",
-            )
-        if user_count < 0:
-            raise SubwayResponseError(
-                f"raw[{index}].userCount must not be negative",
-                error_code="INVALID_RESPONSE",
-            )
-
-        raw_datetime = _required_string(item, "datetime")
         try:
-            observed_at = datetime.strptime(raw_datetime, "%Y%m%d%H%M%S").replace(
-                tzinfo=_SEOUL_TIMEZONE
-            )
-        except ValueError as exc:
+            if not isinstance(item, dict):
+                raise TypeError
+            exit_number = _required_string(item, "exit")
+            user_count = item["userCount"]
+            observed_at = datetime.strptime(item["datetime"], "%Y%m%d%H%M%S")
+            if isinstance(user_count, bool) or not isinstance(user_count, int) or user_count < 0:
+                raise ValueError
+        except (KeyError, TypeError, ValueError) as exc:
             raise SubwayResponseError(
-                f"raw[{index}].datetime must be a valid YYYYMMDDHHMMSS value",
-                error_code="INVALID_RESPONSE",
+                f"raw[{index}]의 필드 형식이 올바르지 않습니다.", ErrorCode.API_RESPONSE_ERROR
             ) from exc
 
-        observations.append(
-            {
-                "metric_name": "station_exit_user_count",
-                "value": float(user_count),
-                "unit": "persons",
-                "observed_at": observed_at.isoformat(),
-                "source": "SK Open API - 시간대별 지하철역 출구 통행자 수",
-                "is_mock": False,
-                "missing_reason": None,
-                "dimensions": {
-                    "exit": exit_number,
-                    "time_slot": observed_at.strftime("%H:%M"),
-                    "gender": gender,
-                    "age_group": age_group,
-                },
-            }
+        unique_key = (exit_number, item["datetime"])
+        if unique_key in seen:
+            if seen[unique_key] != user_count:
+                raise SubwayResponseError(
+                    f"raw[{index}]에 값이 다른 중복 관측이 있습니다.", ErrorCode.API_RESPONSE_ERROR
+                )
+            continue
+        seen[unique_key] = user_count
+
+        day_type = _day_type(observed_at)
+        if period is not None and (
+            day_type not in period.day_types or not _is_in_requested_time(observed_at, period)
+        ):
+            continue
+
+        end_at = observed_at + timedelta(hours=1)
+        observation_period = AnalysisPeriod(
+            start_date=observed_at.date(),
+            end_date=observed_at.date(),
+            timezone="Asia/Seoul",
+            day_types=[day_type],
+            start_time=observed_at.strftime("%H:%M"),
+            end_time=end_at.strftime("%H:%M"),
         )
+        observation = MetricObservation(
+            metric_name="station_exit_user_count",
+            value=float(user_count),
+            unit="persons/hour",
+            period=observation_period,
+            source=_SOURCE,
+            is_mock=False,
+            dimensions={
+                "exit_number": exit_number,
+                "day_type": day_type,
+                "time_slot": f"{observed_at:%H:%M}-{end_at:%H:%M}",
+            },
+        )
+        observations.append(observation.model_dump(mode="json"))
 
     return {
-        "station_id": station_code,
-        "station_name": station_name,
-        "subway_line": subway_line,
-        "gender": gender,
-        "age_group": age_group,
+        "station_id": station_id,
         "observations": observations,
-        "missing_data": [],
+        "missing_data": [] if observations else ["조건에 맞는 출구 통행량 데이터가 없습니다."],
     }
 
 
-def find_nearby_stations(
-    latitude: float,
-    longitude: float,
-    radius_m: int,
-) -> "ToolResult":
-    """좌표와 반경을 기준으로 ``NearbyStation`` 목록을 조회한다.
-
-    위도·경도와 양수 반경을 검증하고, 반환한 ``station_id``의 코드
-    체계를 후속 출구 통행량 조회에서도 그대로 사용해야 한다.
-    """
-    raise NotImplementedError("find_nearby_stations API adapter is not implemented")
-
-
-def get_station_exit_traffic(
-    station_id: str,
-    period: "AnalysisPeriod",
-) -> "ToolResult":
-    """역 ID와 분석 기간으로 출구별 통행량을 조회한다.
-
-    출구·시간대별 데이터의 집계 단위와 중복 제거 기준을 보존해
-    ``StationTrafficData`` 직렬화 사전을 반환해야 한다.
-    """
-    raise NotImplementedError(
-        "common ToolResult, AnalysisPeriod, MetricObservation, and "
-        "StationTrafficData models are not available yet"
+def _failure(error_code: ErrorCode, message: str, source: str = _SOURCE) -> ToolResult:
+    return ToolResult(
+        success=False,
+        source=source,
+        data={},
+        error_code=error_code,
+        error_message=message,
+        is_mock=False,
     )
+
+
+def _load_station_reference(path: Path = _STATION_REFERENCE_PATH) -> list[NearbyStation]:
+    """기준 JSON을 검증하고 거리 미포함 역 목록으로 읽는다."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        rows = payload["stations"]
+        if not isinstance(rows, list):
+            raise TypeError
+
+        stations = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise TypeError
+            stations.append(
+                NearbyStation(
+                    station_id=row["station_id"],
+                    station_name=row["station_name"],
+                    latitude=row["latitude"],
+                    longitude=row["longitude"],
+                    distance_m=0,
+                )
+            )
+        return stations
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise SubwayResponseError(
+            "지하철역 기준 데이터를 읽을 수 없습니다.", ErrorCode.TOOL_INTERNAL_ERROR
+        ) from exc
+
+
+def _distance_m(latitude: float, longitude: float, station: NearbyStation) -> float:
+    """두 WGS84 좌표 사이의 대권거리를 미터로 계산한다."""
+    lat1, lat2 = math.radians(latitude), math.radians(station.latitude)
+    delta_lat = lat2 - lat1
+    delta_lon = math.radians(station.longitude - longitude)
+    haversine = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    )
+    return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(haversine))
+
+
+def find_nearby_stations(latitude: float, longitude: float, radius_m: int) -> ToolResult:
+    """로컬 기준 좌표에서 반경 내 SK 역 코드를 거리순으로 반환한다."""
+    valid_numbers = all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in (latitude, longitude, radius_m)
+    )
+    if (
+        not valid_numbers
+        or not all(math.isfinite(value) for value in (latitude, longitude, radius_m))
+        or not (-90 <= latitude <= 90)
+        or not (-180 <= longitude <= 180)
+        or radius_m <= 0
+    ):
+        return _failure(ErrorCode.INVALID_INPUT, "좌표 또는 반경이 올바르지 않습니다.", _STATION_SOURCE)
+
+    try:
+        nearby = []
+        for station in _load_station_reference():
+            distance = _distance_m(float(latitude), float(longitude), station)
+            if distance <= radius_m:
+                nearby.append(station.model_copy(update={"distance_m": round(distance, 1)}))
+        nearby.sort(key=lambda station: (station.distance_m, station.station_id))
+
+        if not nearby:
+            return _failure(
+                ErrorCode.STATION_NOT_FOUND,
+                "지정한 반경 안에서 지원 가능한 지하철역을 찾지 못했습니다.",
+                _STATION_SOURCE,
+            )
+        return ToolResult(
+            success=True,
+            source=_STATION_SOURCE,
+            data=[station.model_dump(mode="json") for station in nearby],
+            error_code=None,
+            error_message=None,
+            is_mock=False,
+        )
+    except SubwayApiError as exc:
+        return _failure(exc.error_code, str(exc), _STATION_SOURCE)
+    except Exception:
+        return _failure(
+            ErrorCode.TOOL_INTERNAL_ERROR,
+            "인근 지하철역 검색 중 오류가 발생했습니다.",
+            _STATION_SOURCE,
+        )
+
+
+def get_station_exit_traffic(station_id: str, period: AnalysisPeriod) -> ToolResult:
+    """한 역의 출구·시간대별 통행량을 공통 ToolResult로 반환한다."""
+    try:
+        if not isinstance(period, AnalysisPeriod):
+            raise SubwayInputError("period는 AnalysisPeriod여야 합니다.", ErrorCode.INVALID_INPUT)
+        if period.start_date != period.end_date:
+            raise SubwayInputError("현재 API Tool은 하루 단위 조회만 지원합니다.", ErrorCode.INVALID_INPUT)
+
+        station_id = _validate_station_id(station_id)
+        payload = _fetch_station_exit_traffic(station_id, period.start_date.strftime("%Y%m%d"))
+        parsed = _parse_station_exit_traffic(payload, station_id, period)
+        data = StationTrafficData.model_validate(parsed)
+        return ToolResult(
+            success=True,
+            source=_SOURCE,
+            data=data.model_dump(mode="json"),
+            error_code=None,
+            error_message=None,
+            is_mock=False,
+        )
+    except SubwayApiError as exc:
+        return _failure(exc.error_code, str(exc))
+    except Exception:
+        return _failure(ErrorCode.TOOL_INTERNAL_ERROR, "지하철 통행량 처리 중 오류가 발생했습니다.")

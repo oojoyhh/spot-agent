@@ -225,6 +225,25 @@ def test_sch10_zero_and_missing_are_distinct():
         MetricObservation(**{k: v for k, v in observation_kwargs().items() if k != "value"})
 
 
+def test_sch10_academy_and_demographic_dimensions_are_allowed():
+    academy = MetricObservation(
+        **observation_kwargs(
+            dimensions={
+                "academy_id": "473863",
+                "academy_name": "강남대성학원",
+                "category": "입시/고시",
+                "school_age": "고등학생",
+            }
+        )
+    )
+    visitor = MetricObservation(
+        **observation_kwargs(dimensions={"gender": "female", "age_group": "20"})
+    )
+
+    assert academy.dimensions["academy_id"] == "473863"
+    assert visitor.dimensions == {"gender": "female", "age_group": "20"}
+
+
 # ---------------------------------------------------------------------------
 # SCH-11~13 직렬화·기본값
 # ---------------------------------------------------------------------------
