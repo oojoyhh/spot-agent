@@ -14,10 +14,12 @@ from middleware.guardrails import (
     SECRET_DISCLOSURE,
     SAFE_TOOL_TEXT_PLACEHOLDER,
     UNTRUSTED_TOOL_OUTPUT,
+    UNSUPPORTED_DATA,
     build_pii_middlewares,
     extract_coarse_location,
     input_guardrail,
     inspect_model_output,
+    inspect_response_evidence,
     inspect_untrusted_tool_output,
     inspect_tool_result_for_no_data,
     inspect_user_input,
@@ -27,7 +29,7 @@ from middleware.guardrails import (
     sanitize_untrusted_tool_output,
     tool_output_guardrail,
 )
-from models.schemas import AreaIdentity, ErrorCode, StudySpotState, ToolResult
+from models.schemas import AreaIdentity, AreaRecommendation, ErrorCode, EvidenceItem, MarketScore, StudySpotResponse, StudySpotState, ToolResult
 from tools import market_tools, subway_tools
 
 
@@ -479,3 +481,137 @@ def test_no_data_guardrail_allows_actual_competitor_zero_result(monkeypatch):
     result = market_tools.search_competitors(area, 500)
     assert result.success and result.data["competitors"] == []
     assert inspect_tool_result_for_no_data(result).allowed
+
+
+def _verified_score(*, rent_score: float | None = 10.0, missing_data: list[str] | None = None) -> MarketScore:
+    return MarketScore(
+        academy_demand_score=20,
+        target_customer_score=15,
+        station_traffic_score=10,
+        activity_score=10,
+        rent_score=rent_score,
+        competition_score=5,
+        total_score=60 if rent_score is None else 70,
+        confidence=0.8,
+        missing_data=missing_data or [],
+    )
+
+
+def _evidence_context() -> tuple[dict[str, MarketScore], dict[str, ToolResult], dict[str, AreaIdentity], EvidenceItem]:
+    evidence = EvidenceItem(
+        source="market-api",
+        summary="월세 근거",
+        is_mock=False,
+        tool_name="get_district_congestion",
+        metric_name="monthly_rent_krw",
+        value=2_000_000,
+        unit="KRW/month",
+    )
+    return (
+        {"9307": _verified_score()},
+        {
+            "get_district_congestion": ToolResult(
+                success=True,
+                source="market-api",
+                data={"observations": [{"metric_name": "monthly_rent_krw", "value": 2_000_000, "unit": "KRW/month"}]},
+                is_mock=False,
+            )
+        },
+        {
+            "9307": AreaIdentity(
+                commercial_area_id="9307",
+                administrative_code=None,
+                area_name="역삼역남부",
+                latitude=None,
+                longitude=None,
+            )
+        },
+        evidence,
+    )
+
+
+def _response_from_score(score: MarketScore, evidence: EvidenceItem, **changes: object) -> StudySpotResponse:
+    recommendation = AreaRecommendation(
+        **score.model_dump(),
+        commercial_area_id="9307",
+        area_name="역삼역남부",
+        strengths=["학원 수요가 안정적입니다."],
+        risks=["월세 조건을 확인하세요."],
+        evidence=[evidence],
+    ).model_copy(update=changes)
+    return StudySpotResponse(status="success", recommendations=[recommendation], message="분석 결과입니다.")
+
+
+def test_unsupported_data_guardrail_accepts_verified_score_numeric_evidence_and_natural_language():
+    scores, results, areas, evidence = _evidence_context()
+    response = _response_from_score(scores["9307"], evidence)
+
+    assert inspect_response_evidence(response, market_scores=scores, tool_results=results, areas=areas).allowed
+
+
+def test_unsupported_data_guardrail_detects_changed_score_even_when_response_schema_is_valid():
+    scores, results, areas, evidence = _evidence_context()
+    response = _response_from_score(scores["9307"], evidence, rent_score=11, total_score=71)
+
+    decision = inspect_response_evidence(response, market_scores=scores, tool_results=results, areas=areas)
+    assert not decision.allowed and decision.reason == UNSUPPORTED_DATA
+
+
+def test_unsupported_data_guardrail_detects_numeric_evidence_absent_from_tool_result():
+    scores, results, areas, evidence = _evidence_context()
+    response = _response_from_score(scores["9307"], evidence.model_copy(update={"value": 1_800_000}))
+
+    decision = inspect_response_evidence(response, market_scores=scores, tool_results=results, areas=areas)
+    assert not decision.allowed and decision.reason == UNSUPPORTED_DATA
+
+
+def test_unsupported_data_guardrail_accepts_matching_mock_provenance():
+    scores, results, areas, evidence = _evidence_context()
+    mock_result = results["get_district_congestion"].model_copy(
+        update={"source": "mock:get_district_congestion", "is_mock": True}
+    )
+    response = _response_from_score(
+        scores["9307"],
+        evidence.model_copy(update={"source": mock_result.source, "is_mock": True}),
+    )
+
+    assert inspect_response_evidence(
+        response,
+        market_scores=scores,
+        tool_results={"get_district_congestion": mock_result},
+        areas=areas,
+    ).allowed
+
+
+def test_unsupported_data_guardrail_allows_missing_data_without_inventing_numeric_evidence():
+    _, _, areas, _ = _evidence_context()
+    partial_score = _verified_score(rent_score=None, missing_data=["monthly_rent_krw"])
+    evidence = EvidenceItem(
+        source="academy-api",
+        summary="학원 수 근거",
+        is_mock=False,
+        tool_name="get_academy_demand",
+        metric_name="academy_count",
+        value=12,
+        unit="count",
+    )
+    response = _response_from_score(
+        partial_score,
+        evidence,
+        risks=["월세 데이터가 누락되어 비교에 한계가 있습니다."],
+        strengths=["다른 관측치는 정상입니다."],
+    )
+
+    assert inspect_response_evidence(
+        response,
+        market_scores={"9307": partial_score},
+        tool_results={
+            "get_academy_demand": ToolResult(
+                success=True,
+                source="academy-api",
+                data={"observations": [{"metric_name": "academy_count", "value": 12, "unit": "count"}]},
+                is_mock=False,
+            )
+        },
+        areas=areas,
+    ).allowed
